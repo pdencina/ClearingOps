@@ -160,12 +160,20 @@ export async function POST(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('[ingestor] Error:', error)
+    console.error('[ingestor] Error completo:', JSON.stringify(error))
+    let mensaje = 'Error desconocido'
+    let detalle = ''
+    if (error instanceof Error) {
+      mensaje = error.message
+    } else if (typeof error === 'object' && error !== null) {
+      const e = error as Record<string, unknown>
+      mensaje = String(e.message ?? e.code ?? JSON.stringify(e))
+      detalle = String(e.details ?? e.hint ?? '')
+    } else {
+      mensaje = String(error)
+    }
     return NextResponse.json(
-      {
-        error:   'Error procesando el archivo',
-        detalle: error instanceof Error ? error.message : String(error)
-      },
+      { error: 'Error procesando el archivo', detalle: mensaje, hint: detalle },
       { status: 500 }
     )
   }

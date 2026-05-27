@@ -172,9 +172,16 @@ export function SVXPUploader({ onSuccess }: Props) {
                 <div>
                   <p className="text-sm font-medium text-red-800">Error al procesar el archivo</p>
                   <p className="text-xs text-red-600 mt-1">{resultado.error}</p>
-                  {resultado.detalle && (
-                    <p className="text-xs text-red-400 mt-1 font-mono">{resultado.detalle}</p>
+                  {resultado.detalle && resultado.detalle !== '[object Object]' && (
+                    <p className="text-xs text-red-400 mt-1 font-mono bg-red-100 rounded p-1">{resultado.detalle}</p>
                   )}
+                  <p className="text-xs text-gray-400 mt-2">
+                    💡 Si el error es de tablas o permisos, abre{' '}
+                    <a href="/api/diagnostico" target="_blank" className="text-blue-500 underline">
+                      /api/diagnostico
+                    </a>{' '}
+                    para ver el diagnóstico completo.
+                  </p>
                 </div>
               )}
             </div>
