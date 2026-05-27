@@ -15,6 +15,7 @@ import {
 import { mockArchivos, mockAlertas, mockCuadratura, getMockMetricas, getMockResumen7Dias } from '@/lib/mock-data'
 import { UploadModal } from '@/components/svxp-uploader'
 import { SVAPTab } from '@/components/svap-tab'
+import { ContracargosTab } from '@/components/contracargos-tab'
 import type { Alerta, CuadraturaDiaria, Archivo, MetricasGlobales, ResumenDia } from '@/types'
 
 // Si no hay Supabase configurado, usar datos mock
@@ -143,7 +144,7 @@ function AlertModal({ alerta, onClose, onActualizar }: { alerta: Alerta; onClose
   )
 }
 
-type Tab = 'dashboard' | 'alertas' | 'cuadratura' | 'archivos' | 'svap'
+type Tab = 'dashboard' | 'alertas' | 'cuadratura' | 'archivos' | 'svap' | 'contracargos'
 
 export default function Home() {
   const [tab,          setTab]          = useState<Tab>('dashboard')
@@ -210,11 +211,12 @@ export default function Home() {
   const alertasFiltradas  = alertas.filter(a => filtroAlerta === 'todos' ? true : a.estado === filtroAlerta)
 
   const navItems: { id: Tab; label: string; icon: React.ElementType }[] = [
-    { id: 'dashboard',  label: 'Dashboard',   icon: TrendingUp },
-    { id: 'alertas',    label: 'Alertas',      icon: Bell },
-    { id: 'cuadratura', label: 'Cuadratura',   icon: Database },
-    { id: 'archivos',   label: 'Archivos',     icon: FileText },
-    { id: 'svap',       label: 'SVAP',         icon: Activity },
+    { id: 'dashboard',     label: 'Dashboard',    icon: TrendingUp },
+    { id: 'alertas',       label: 'Alertas',       icon: Bell },
+    { id: 'cuadratura',    label: 'Cuadratura',    icon: Database },
+    { id: 'archivos',      label: 'Archivos',      icon: FileText },
+    { id: 'svap',          label: 'SVAP',          icon: Activity },
+    { id: 'contracargos',  label: 'Contracargos',  icon: AlertCircle },
   ]
 
   return (
@@ -399,7 +401,8 @@ export default function Home() {
             </div>
           </div>
         )}
-        {tab === 'svap' && <SVAPTab />}
+        {tab === 'svap'         && <SVAPTab />}
+        {tab === 'contracargos' && <ContracargosTab />}
 
       </main>
 

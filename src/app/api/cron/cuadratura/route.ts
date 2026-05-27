@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { ejecutarCuadraturaCompleta } from '@/lib/cuadratura-engine'
 import { enviarEmailCuadratura } from '@/lib/email-service'
+import { detectarContracargosVencidos } from '@/lib/contracargos-module'
 
 export async function GET(request: NextRequest) {
   // Verificar token de seguridad — evita que alguien externo lo dispare
@@ -30,6 +31,10 @@ export async function GET(request: NextRequest) {
   try {
     // 1. Ejecutar cuadratura completa
     const resultado = await ejecutarCuadraturaCompleta(fecha)
+
+    // 2. Detectar contracargos vencidos y próximos a vencer
+    const cbResult = await detectarContracargosVencidos()
+    console.log(`[cron] Contracargos: ${cbResult.vencidos} vencidos, ${cbResult.proximos} próximos a vencer, ${cbResult.alertas} alertas nuevas`)
 
     // 2. Enviar email si hay diferencias
     const emailsDestino = (process.env.EMAIL_ALERTAS ?? '').split(',').filter(Boolean)
