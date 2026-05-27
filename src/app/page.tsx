@@ -14,6 +14,7 @@ import {
 } from '@/lib/supabase'
 import { mockArchivos, mockAlertas, mockCuadratura, getMockMetricas, getMockResumen7Dias } from '@/lib/mock-data'
 import { UploadModal } from '@/components/svxp-uploader'
+import { SVAPTab } from '@/components/svap-tab'
 import type { Alerta, CuadraturaDiaria, Archivo, MetricasGlobales, ResumenDia } from '@/types'
 
 // Si no hay Supabase configurado, usar datos mock
@@ -142,7 +143,7 @@ function AlertModal({ alerta, onClose, onActualizar }: { alerta: Alerta; onClose
   )
 }
 
-type Tab = 'dashboard' | 'alertas' | 'cuadratura' | 'archivos'
+type Tab = 'dashboard' | 'alertas' | 'cuadratura' | 'archivos' | 'svap'
 
 export default function Home() {
   const [tab,          setTab]          = useState<Tab>('dashboard')
@@ -213,6 +214,7 @@ export default function Home() {
     { id: 'alertas',    label: 'Alertas',      icon: Bell },
     { id: 'cuadratura', label: 'Cuadratura',   icon: Database },
     { id: 'archivos',   label: 'Archivos',     icon: FileText },
+    { id: 'svap',       label: 'SVAP',         icon: Activity },
   ]
 
   return (
@@ -397,6 +399,8 @@ export default function Home() {
             </div>
           </div>
         )}
+        {tab === 'svap' && <SVAPTab />}
+
       </main>
 
       {alertaSel && <AlertModal alerta={alertaSel} onClose={() => setAlertaSel(null)} onActualizar={handleActualizarAlerta} />}
