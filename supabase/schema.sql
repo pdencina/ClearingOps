@@ -33,7 +33,7 @@ create table if not exists transacciones (
   archivo_id      uuid references archivos(id) on delete cascade,
   trx_id          text not null,
   tipo_trx        text not null,   -- TC05, TC06, TC25, TC26, etc.
-  marca           text not null,
+  marca           text not null check (marca in ('VISA', 'MASTERCARD', 'MAESTRO', 'AMEX', 'UNKNOWN')),
   monto           bigint not null, -- en centavos para evitar decimales
   moneda          text not null default 'CLP',
   fecha_trx       timestamptz not null,

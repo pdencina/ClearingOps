@@ -51,23 +51,29 @@ export async function POST(request: NextRequest) {
     })
 
     // 2. Preparar transacciones para insertar
+    // Normalizar marca — el constraint solo acepta valores conocidos
+    const marcaValida = (['VISA','MASTERCARD','MAESTRO','AMEX'] as const)
+      .includes(svxp.marca as 'VISA'|'MASTERCARD'|'MAESTRO'|'AMEX')
+      ? svxp.marca
+      : 'VISA' // fallback mientras se implementa detección automática
+
     const trxsParaInsertar = svxp.operaciones.map(op => {
       const validacion = validarOperacion(op)
       return {
         archivo_id:          archivoGuardado.id,
-        trx_id:              op.klap_codigo || op.originator_refnum || op.external_auth_id,
-        tipo_trx:            op.oper_type,
-        marca:               svxp.marca,
-        monto:               op.monto,
-        moneda:              op.moneda,
-        fecha_trx:           op.oper_date,
+        trx_id:              op.klap_codigo || op.originator_refnum || op.external_auth_id || `trx-${Date.now()}-${Math.random()}`,
+        tipo_trx:            op.oper_type   || 'OPTP0000',
+        marca:               marcaValida,
+        monto:               Math.round(op.monto) || 0,
+        moneda:              op.moneda === '152' ? 'CLP' : op.moneda === '840' ? 'USD' : (op.moneda || 'CLP'),
+        fecha_trx:           op.oper_date  || new Date().toISOString(),
         estado:              mapearEstado(op.status),
-        merchant_number:     op.merchant_number || undefined,
-        nombre_comercio:     op.merchant_name   || undefined,
-        mcc:                 op.mcc             || undefined,
-        originator_refnum:   op.originator_refnum || undefined,
+        merchant_number:     op.merchant_number  || undefined,
+        nombre_comercio:     op.merchant_name    || undefined,
+        mcc:                 op.mcc              || undefined,
+        originator_refnum:   op.originator_refnum|| undefined,
         card_number:         op.card_number ? maskCard(op.card_number) : undefined,
-        auth_code:           op.auth_code   || undefined,
+        auth_code:           op.auth_code        || undefined,
         es_cuota:            false,
         notas:               validacion.errores.length > 0
           ? validacion.errores.join(' | ')
