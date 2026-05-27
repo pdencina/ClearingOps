@@ -1,16 +1,23 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend
 } from 'recharts'
 import {
   CheckCircle, Clock, RefreshCw, FileText, TrendingUp,
   Bell, Settings, ChevronRight, XCircle, AlertCircle,
-  Activity, Database, AlertTriangle
+  Activity, Database, AlertTriangle, UploadCloud
 } from 'lucide-react'
+import {
+  getMetricas, getAlertas, getArchivos, getCuadratura7Dias, actualizarAlerta
+} from '@/lib/supabase'
 import { mockArchivos, mockAlertas, mockCuadratura, getMockMetricas, getMockResumen7Dias } from '@/lib/mock-data'
-import type { Alerta, CuadraturaDiaria, Archivo } from '@/types'
+import { UploadModal } from '@/components/svxp-uploader'
+import type { Alerta, CuadraturaDiaria, Archivo, MetricasGlobales, ResumenDia } from '@/types'
+
+// Si no hay Supabase configurado, usar datos mock
+const usarMock = !process.env.NEXT_PUBLIC_SUPABASE_URL
 
 const fmtNum = (n: number) => n.toLocaleString('es-CL')
 const fmtFecha = (iso: string) => new Date(iso).toLocaleDateString('es-CL', { day: '2-digit', month: 'short' })
@@ -107,7 +114,7 @@ function FileRow({ archivo }: { archivo: Archivo }) {
   )
 }
 
-function AlertModal({ alerta, onClose }: { alerta: Alerta; onClose: () => void }) {
+function AlertModal({ alerta, onClose, onActualizar }: { alerta: Alerta; onClose: () => void; onActualizar: (id: string, estado: 'en_revision'|'resuelta') => void }) {
   return (
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6" onClick={e => e.stopPropagation()}>
@@ -127,8 +134,8 @@ function AlertModal({ alerta, onClose }: { alerta: Alerta; onClose: () => void }
           {alerta.jira_ticket && <div className="bg-blue-50 rounded-lg p-3"><p className="text-xs text-blue-400">Ticket Jira</p><p className="text-sm font-semibold text-blue-600 font-mono">{alerta.jira_ticket}</p></div>}
         </div>
         <div className="flex gap-2">
-          <button className="flex-1 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium">Marcar en revisión</button>
-          <button className="flex-1 py-2 text-sm border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors font-medium">Marcar resuelta</button>
+          <button onClick={() => onActualizar(alerta.id, 'en_revision')} className="flex-1 py-2 text-sm bg-gray-900 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium">Marcar en revisión</button>
+          <button onClick={() => onActualizar(alerta.id, 'resuelta')} className="flex-1 py-2 text-sm border border-gray-200 text-gray-600 rounded-lg hover:bg-gray-50 transition-colors font-medium">Marcar resuelta</button>
         </div>
       </div>
     </div>
@@ -138,20 +145,68 @@ function AlertModal({ alerta, onClose }: { alerta: Alerta; onClose: () => void }
 type Tab = 'dashboard' | 'alertas' | 'cuadratura' | 'archivos'
 
 export default function Home() {
-  const [tab, setTab] = useState<Tab>('dashboard')
-  const [alertaSel, setAlertaSel] = useState<Alerta | null>(null)
+  const [tab,          setTab]          = useState<Tab>('dashboard')
+  const [alertaSel,    setAlertaSel]    = useState<Alerta | null>(null)
   const [filtroAlerta, setFiltroAlerta] = useState<'todos'|'activa'|'en_revision'|'resuelta'>('todos')
+  const [showUpload,   setShowUpload]   = useState(false)
+  const [cargando,     setCargando]     = useState(!usarMock)
 
-  const metricas = getMockMetricas()
-  const resumen7d = getMockResumen7Dias()
-  const hoy = new Date().toISOString().split('T')[0]
+  // Datos — mock o Supabase real
+  const [metricas,  setMetricas]  = useState<MetricasGlobales>(getMockMetricas())
+  const [alertas,   setAlertas]   = useState<Alerta[]>(mockAlertas)
+  const [archivos,  setArchivos]  = useState<Archivo[]>(mockArchivos)
+  const [cuadratura,setCuadratura]= useState<CuadraturaDiaria[]>(mockCuadratura)
+  const [resumen7d, setResumen7d] = useState<ResumenDia[]>(getMockResumen7Dias())
+
+  const cargarDatos = useCallback(async () => {
+    if (usarMock) return
+    setCargando(true)
+    try {
+      const [m, al, ar, cuad] = await Promise.all([
+        getMetricas(), getAlertas(), getArchivos(), getCuadratura7Dias()
+      ])
+      setMetricas(m)
+      setAlertas(al as Alerta[])
+      setArchivos(ar as Archivo[])
+      setCuadratura(cuad as CuadraturaDiaria[])
+
+      // Construir resumen7d desde cuadratura real
+      const porFecha: Record<string, { visa?: CuadraturaDiaria; mc?: CuadraturaDiaria }> = {}
+      ;(cuad as CuadraturaDiaria[]).forEach(c => {
+        if (!porFecha[c.fecha]) porFecha[c.fecha] = {}
+        if (c.marca === 'VISA') porFecha[c.fecha].visa = c
+        else porFecha[c.fecha].mc = c
+      })
+      const r7d: ResumenDia[] = Object.entries(porFecha).map(([f, { visa, mc }]) => ({
+        fecha: f,
+        visa:        { svxp: visa?.trx_svxp ?? 0, ctf: visa?.trx_ctf ?? 0, diferencia: visa?.diferencia ?? 0, estado: visa?.estado ?? 'pendiente' },
+        mastercard:  { svxp: mc?.trx_svxp   ?? 0, ctf: mc?.trx_ctf   ?? 0, diferencia: mc?.diferencia   ?? 0, estado: mc?.estado   ?? 'pendiente' },
+        alertas_activas: (al as Alerta[]).filter(a => a.fecha_proceso === f && (a.estado === 'activa' || a.estado === 'en_revision')).length,
+      })).sort((a, b) => a.fecha.localeCompare(b.fecha))
+      setResumen7d(r7d)
+    } catch (e) {
+      console.error('Error cargando datos:', e)
+    } finally {
+      setCargando(false)
+    }
+  }, [])
+
+  useEffect(() => { cargarDatos() }, [cargarDatos])
+
+  const handleActualizarAlerta = async (id: string, estado: 'en_revision' | 'resuelta') => {
+    if (!usarMock) await actualizarAlerta(id, estado)
+    setAlertas(prev => prev.map(a => a.id === id ? { ...a, estado } : a))
+    setAlertaSel(null)
+  }
+
+  const hoy  = new Date().toISOString().split('T')[0]
   const ayer = new Date(Date.now() - 86400000).toISOString().split('T')[0]
 
-  const cuadHoy  = mockCuadratura.filter(c => c.fecha === hoy)
-  const cuadAyer = mockCuadratura.filter(c => c.fecha === ayer)
-  const archHoy  = mockArchivos.filter(a => a.fecha_proceso === hoy)
-  const alertasActivasHoy = mockAlertas.filter(a => a.estado === 'activa' || a.estado === 'en_revision')
-  const alertasFiltradas  = mockAlertas.filter(a => filtroAlerta === 'todos' ? true : a.estado === filtroAlerta)
+  const cuadHoy           = cuadratura.filter(c => c.fecha === hoy)
+  const cuadAyer          = cuadratura.filter(c => c.fecha === ayer)
+  const archHoy           = archivos.filter(a => a.fecha_proceso === hoy)
+  const alertasActivasHoy = alertas.filter(a => a.estado === 'activa' || a.estado === 'en_revision')
+  const alertasFiltradas  = alertas.filter(a => filtroAlerta === 'todos' ? true : a.estado === filtroAlerta)
 
   const navItems: { id: Tab; label: string; icon: React.ElementType }[] = [
     { id: 'dashboard',  label: 'Dashboard',   icon: TrendingUp },
@@ -179,11 +234,17 @@ export default function Home() {
             ))}
           </nav>
           <div className="flex items-center gap-2">
+            <button onClick={() => setShowUpload(true)} className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white rounded-lg text-xs font-medium hover:bg-gray-700 transition-colors">
+              <UploadCloud className="w-3.5 h-3.5" /><span className="hidden sm:inline">Subir SVXP</span>
+            </button>
             {metricas.alertas_criticas > 0 && (
               <button onClick={() => setTab('alertas')} className="flex items-center gap-1.5 px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-medium border border-red-100 hover:bg-red-100 transition-colors">
                 <AlertCircle className="w-3.5 h-3.5" />{metricas.alertas_criticas} crítica{metricas.alertas_criticas > 1 ? 's' : ''}
               </button>
             )}
+            <button onClick={cargarDatos} disabled={cargando} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-40">
+              <RefreshCw className={`w-4 h-4 ${cargando ? 'animate-spin' : ''}`} />
+            </button>
             <button className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"><Settings className="w-4 h-4" /></button>
           </div>
         </div>
@@ -338,7 +399,13 @@ export default function Home() {
         )}
       </main>
 
-      {alertaSel && <AlertModal alerta={alertaSel} onClose={() => setAlertaSel(null)} />}
+      {alertaSel && <AlertModal alerta={alertaSel} onClose={() => setAlertaSel(null)} onActualizar={handleActualizarAlerta} />}
+      {showUpload && <UploadModal onClose={() => setShowUpload(false)} onSuccess={cargarDatos} />}
+      {usarMock && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-amber-900 text-amber-100 text-xs px-4 py-2 rounded-full shadow-lg">
+          Modo demo — conecta Supabase para datos reales
+        </div>
+      )}
     </div>
   )
 }
