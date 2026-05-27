@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/cuadratura",
+      "schedule": "30 2 * * *"
+    }
+  ]
+}
