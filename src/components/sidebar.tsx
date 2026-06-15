@@ -13,6 +13,7 @@ import {
   ShieldAlert,
   Activity,
   Zap,
+  Play,
 } from 'lucide-react'
 
 const navItems = [
@@ -24,6 +25,7 @@ const navItems = [
   { href: '/reglas', label: 'Reglas & Fees', icon: Settings },
   { href: '/disputas', label: 'Disputas', icon: ShieldAlert },
   { href: '/monitor', label: 'Monitor', icon: Activity },
+  { href: '/demo', label: 'Demo Flow', icon: Play },
 ]
 
 export function Sidebar() {
