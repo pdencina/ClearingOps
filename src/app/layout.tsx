@@ -1,15 +1,21 @@
 import type { Metadata } from 'next'
 import './globals.css'
+import { Sidebar } from '@/components/sidebar'
 
 export const metadata: Metadata = {
-  title: 'ClearingOps — Operaciones de Clearing',
-  description: 'Plataforma de validación y conciliación de clearing para medios de pago',
+  title: 'KLAP CORE — Payment Operating System',
+  description: 'Plataforma de procesamiento y liquidación de pagos',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es">
-      <body className="bg-gray-50 min-h-screen">{children}</body>
+    <html lang="es" className="dark">
+      <body className="min-h-screen flex">
+        <Sidebar />
+        <main className="flex-1 ml-64 p-6 overflow-auto min-h-screen">
+          {children}
+        </main>
+      </body>
     </html>
   )
 }

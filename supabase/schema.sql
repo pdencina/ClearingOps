@@ -1,157 +1,172 @@
 -- ============================================================
--- ClearingOps — Esquema de base de datos
--- Ejecutar en Supabase SQL Editor
+-- KLAP CORE — Schema Principal
 -- ============================================================
 
--- Extensiones necesarias
-create extension if not exists "uuid-ossp";
-
--- ============================================================
--- TABLA: archivos
--- Registro de cada archivo recibido (SVXP, CTF, IPM)
--- ============================================================
-create table if not exists archivos (
-  id            uuid primary key default uuid_generate_v4(),
-  nombre        text not null,
-  tipo          text not null check (tipo in ('SVXP', 'CTF', 'IPM')),
-  marca         text not null check (marca in ('VISA', 'MASTERCARD', 'MAESTRO', 'AMEX')),
-  fecha_proceso date not null,
-  recibido_at   timestamptz not null default now(),
-  total_trx     integer not null default 0,
-  estado        text not null default 'procesando' check (estado in ('procesando', 'ok', 'error', 'advertencia')),
-  ruta          text,
-  notas         text,
-  created_at    timestamptz not null default now()
+-- Merchants (comercios)
+CREATE TABLE IF NOT EXISTS merchants (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  rut TEXT UNIQUE NOT NULL,
+  mcc TEXT NOT NULL DEFAULT '5411',
+  category TEXT NOT NULL DEFAULT 'retail',
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'suspended')),
+  contact_email TEXT,
+  contact_phone TEXT,
+  address TEXT,
+  city TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- ============================================================
--- TABLA: transacciones
--- Cada TRX individual parseada desde los archivos
--- ============================================================
-create table if not exists transacciones (
-  id              uuid primary key default uuid_generate_v4(),
-  archivo_id      uuid references archivos(id) on delete cascade,
-  trx_id          text not null,
-  tipo_trx        text not null,   -- TC05, TC06, TC25, TC26, etc.
-  marca           text not null check (marca in ('VISA', 'MASTERCARD', 'MAESTRO', 'AMEX', 'UNKNOWN')),
-  monto           bigint not null, -- en centavos para evitar decimales
-  moneda          text not null default 'CLP',
-  fecha_trx       timestamptz not null,
-  estado          text not null default 'pendiente' check (estado in (
-                    'pendiente', 'procesada', 'enviada', 'confirmada',
-                    'error', 'frozen', 'excluida'
-                  )),
-  codigo_op       text,            -- OPST0400, OPST0500, etc.
-  arn             text,
-  fecha_arn       date,            -- fecha juliana del ARN
-  cod_comercio    text,
-  cod_sucursal    text,
-  nombre_comercio text,
-  mcc             text,
-  archivo_ctf_id  uuid references archivos(id),
-  file_id         text,            -- file_id asignado en outgoing
-  es_cuota        boolean default false,
-  numero_cuota    integer,
-  total_cuotas    integer,
-  trx_original_id text,            -- para anulaciones CIT/MIT
-  notas           text,
-  created_at      timestamptz not null default now()
+-- Terminals
+CREATE TABLE IF NOT EXISTS terminals (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  merchant_id UUID NOT NULL REFERENCES merchants(id),
+  terminal_code TEXT NOT NULL UNIQUE,
+  model TEXT NOT NULL DEFAULT 'Verifone P400',
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'maintenance')),
+  location TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- ============================================================
--- TABLA: cuadratura_diaria
--- Resultado del proceso de cuadratura por día y marca
--- ============================================================
-create table if not exists cuadratura_diaria (
-  id                  uuid primary key default uuid_generate_v4(),
-  fecha               date not null,
-  marca               text not null,
-  trx_svxp            integer not null default 0,
-  trx_ctf             integer not null default 0,
-  trx_ipm             integer not null default 0,
-  trx_error           integer not null default 0,
-  trx_frozen          integer not null default 0,
-  trx_excluidas       integer not null default 0,
-  diferencia          integer generated always as (trx_svxp - trx_ctf - trx_error - trx_excluidas) stored,
-  estado              text not null default 'pendiente' check (estado in ('ok', 'diferencia', 'pendiente', 'error')),
-  ejecutado_at        timestamptz,
-  notas               text,
-  created_at          timestamptz not null default now(),
-  unique(fecha, marca)
+-- Transactions
+CREATE TABLE IF NOT EXISTS transactions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  merchant_id UUID NOT NULL REFERENCES merchants(id),
+  terminal_id UUID REFERENCES terminals(id),
+  amount NUMERIC(12,2) NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'CLP',
+  card_brand TEXT NOT NULL CHECK (card_brand IN ('visa', 'mastercard', 'amex', 'redcompra')),
+  card_type TEXT NOT NULL CHECK (card_type IN ('credit', 'debit', 'prepaid')),
+  card_last_four TEXT,
+  auth_code TEXT,
+  reference_id TEXT UNIQUE,
+  status TEXT NOT NULL DEFAULT 'authorized' CHECK (status IN ('authorized', 'captured', 'rejected', 'reversed', 'settled')),
+  payment_method TEXT NOT NULL DEFAULT 'card' CHECK (payment_method IN ('card', 'qr', 'contactless', 'ecommerce')),
+  installments INT DEFAULT 1,
+  rejection_reason TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  settled_at TIMESTAMPTZ
 );
 
--- ============================================================
--- TABLA: alertas
--- Alertas generadas automáticamente por el motor
--- ============================================================
-create table if not exists alertas (
-  id            uuid primary key default uuid_generate_v4(),
-  tipo          text not null check (tipo in (
-                  'svxp_no_llegó', 'diferencia_cuadratura',
-                  'trx_opst500', 'arn_incorrecto',
-                  'trx_frozen', 'ctf_retrasado', 'ipm_diferencia'
-                )),
-  severidad     text not null check (severidad in ('critica', 'alta', 'media', 'baja')),
-  marca         text,
-  fecha_proceso date,
-  titulo        text not null,
-  detalle       text,
-  cantidad_trx  integer default 0,
-  estado        text not null default 'activa' check (estado in ('activa', 'en_revision', 'resuelta', 'ignorada')),
-  archivo_id    uuid references archivos(id),
-  jira_ticket   text,
-  resuelto_at   timestamptz,
-  resuelto_por  text,
-  created_at    timestamptz not null default now()
+-- Clearing Batches
+CREATE TABLE IF NOT EXISTS clearing_batches (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  batch_number TEXT NOT NULL UNIQUE,
+  card_brand TEXT NOT NULL CHECK (card_brand IN ('visa', 'mastercard')),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'generated', 'sent', 'confirmed', 'failed')),
+  transaction_count INT NOT NULL DEFAULT 0,
+  total_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+  file_name TEXT,
+  generated_at TIMESTAMPTZ,
+  sent_at TIMESTAMPTZ,
+  confirmed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- ============================================================
--- TABLA: configuracion
--- Parámetros del sistema por cliente/marca
--- ============================================================
-create table if not exists configuracion (
-  id              uuid primary key default uuid_generate_v4(),
-  clave           text not null unique,
-  valor           text not null,
-  descripcion     text,
-  updated_at      timestamptz not null default now()
+-- Settlements (liquidaciones)
+CREATE TABLE IF NOT EXISTS settlements (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  merchant_id UUID NOT NULL REFERENCES merchants(id),
+  settlement_date DATE NOT NULL,
+  gross_amount NUMERIC(14,2) NOT NULL,
+  commission NUMERIC(12,2) NOT NULL DEFAULT 0,
+  iva NUMERIC(12,2) NOT NULL DEFAULT 0,
+  withholdings NUMERIC(12,2) NOT NULL DEFAULT 0,
+  net_amount NUMERIC(14,2) NOT NULL,
+  transaction_count INT NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'paid', 'failed')),
+  payment_reference TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  paid_at TIMESTAMPTZ
 );
 
--- Valores por defecto
-insert into configuracion (clave, valor, descripcion) values
-  ('ventana_svxp_minutos', '60', 'Minutos sin SVXP antes de generar alerta'),
-  ('hora_cuadratura', '23:30', 'Hora de ejecución del proceso de cuadratura diaria'),
-  ('hora_ctf_esperada', '16:00', 'Hora esperada de generación del CTF'),
-  ('jira_url', '', 'URL base del Jira para creación automática de tickets'),
-  ('email_alertas', '', 'Email para recibir alertas críticas'),
-  ('slack_webhook', '', 'Webhook de Slack para alertas')
-on conflict (clave) do nothing;
+-- Reconciliation Items
+CREATE TABLE IF NOT EXISTS reconciliation_items (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  reconciliation_date DATE NOT NULL,
+  source_klap NUMERIC(14,2) NOT NULL DEFAULT 0,
+  source_bank NUMERIC(14,2) NOT NULL DEFAULT 0,
+  source_brand NUMERIC(14,2) NOT NULL DEFAULT 0,
+  difference_amount NUMERIC(14,2) NOT NULL DEFAULT 0,
+  transaction_count_klap INT NOT NULL DEFAULT 0,
+  transaction_count_bank INT NOT NULL DEFAULT 0,
+  transaction_count_brand INT NOT NULL DEFAULT 0,
+  card_brand TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('reconciled', 'mismatch', 'pending', 'investigating')),
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  resolved_at TIMESTAMPTZ
+);
 
--- ============================================================
--- ÍNDICES para performance
--- ============================================================
-create index if not exists idx_transacciones_fecha    on transacciones(fecha_trx);
-create index if not exists idx_transacciones_marca    on transacciones(marca);
-create index if not exists idx_transacciones_estado   on transacciones(estado);
-create index if not exists idx_transacciones_archivo  on transacciones(archivo_id);
-create index if not exists idx_alertas_estado         on alertas(estado);
-create index if not exists idx_alertas_severidad      on alertas(severidad);
-create index if not exists idx_cuadratura_fecha       on cuadratura_diaria(fecha);
-create index if not exists idx_archivos_fecha         on archivos(fecha_proceso);
-create index if not exists idx_archivos_tipo          on archivos(tipo);
+-- Fee Rules (reglas de comisión)
+CREATE TABLE IF NOT EXISTS fee_rules (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  card_brand TEXT NOT NULL CHECK (card_brand IN ('visa', 'mastercard', 'amex', 'redcompra')),
+  card_type TEXT NOT NULL CHECK (card_type IN ('credit', 'debit', 'prepaid')),
+  payment_method TEXT NOT NULL DEFAULT 'card',
+  percentage NUMERIC(5,4) NOT NULL,
+  fixed_fee NUMERIC(8,2) NOT NULL DEFAULT 0,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  effective_from DATE NOT NULL DEFAULT CURRENT_DATE,
+  effective_to DATE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
--- ============================================================
--- ROW LEVEL SECURITY (básico para MVP)
--- ============================================================
-alter table archivos           enable row level security;
-alter table transacciones      enable row level security;
-alter table cuadratura_diaria  enable row level security;
-alter table alertas            enable row level security;
-alter table configuracion      enable row level security;
+-- Disputes (chargebacks)
+CREATE TABLE IF NOT EXISTS disputes (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  transaction_id UUID REFERENCES transactions(id),
+  merchant_id UUID NOT NULL REFERENCES merchants(id),
+  amount NUMERIC(12,2) NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'CLP',
+  reason TEXT NOT NULL,
+  reason_code TEXT,
+  card_brand TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'under_review', 'representment', 'won', 'lost', 'expired')),
+  deadline DATE,
+  evidence_submitted BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  resolved_at TIMESTAMPTZ
+);
 
--- Política temporal para desarrollo (reemplazar con auth real)
-create policy "acceso_total" on archivos           for all using (true);
-create policy "acceso_total" on transacciones      for all using (true);
-create policy "acceso_total" on cuadratura_diaria  for all using (true);
-create policy "acceso_total" on alertas            for all using (true);
-create policy "acceso_total" on configuracion      for all using (true);
+-- Operational Events
+CREATE TABLE IF NOT EXISTS operational_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_type TEXT NOT NULL CHECK (event_type IN ('job', 'error', 'warning', 'info', 'critical')),
+  source TEXT NOT NULL,
+  message TEXT NOT NULL,
+  details JSONB,
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'resolved', 'acknowledged')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  resolved_at TIMESTAMPTZ
+);
+
+-- Alerts
+CREATE TABLE IF NOT EXISTS alerts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  type TEXT NOT NULL CHECK (type IN ('transaction', 'settlement', 'reconciliation', 'dispute', 'system', 'security')),
+  severity TEXT NOT NULL CHECK (severity IN ('low', 'medium', 'high', 'critical')),
+  title TEXT NOT NULL,
+  description TEXT,
+  is_read BOOLEAN NOT NULL DEFAULT FALSE,
+  is_resolved BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  resolved_at TIMESTAMPTZ
+);
+
+-- Indexes
+CREATE INDEX idx_transactions_merchant ON transactions(merchant_id);
+CREATE INDEX idx_transactions_status ON transactions(status);
+CREATE INDEX idx_transactions_created ON transactions(created_at DESC);
+CREATE INDEX idx_transactions_brand ON transactions(card_brand);
+CREATE INDEX idx_settlements_merchant ON settlements(merchant_id);
+CREATE INDEX idx_settlements_status ON settlements(status);
+CREATE INDEX idx_disputes_merchant ON disputes(merchant_id);
+CREATE INDEX idx_disputes_status ON disputes(status);
+CREATE INDEX idx_reconciliation_date ON reconciliation_items(reconciliation_date);
+CREATE INDEX idx_operational_events_type ON operational_events(event_type);
+CREATE INDEX idx_alerts_severity ON alerts(severity);
+CREATE INDEX idx_alerts_resolved ON alerts(is_resolved);

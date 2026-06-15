@@ -1,204 +1,266 @@
 // ============================================================
-// ClearingOps — Cliente Supabase
+// KLAP CORE — Supabase Client
 // ============================================================
 import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
 let _supabase: SupabaseClient | null = null
 
-function getSupabase(): SupabaseClient {
+export function getSupabase(): SupabaseClient {
   if (_supabase) return _supabase
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  if (!url || !key) throw new Error('Supabase no configurado — agrega NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY')
+  if (!url || !key) throw new Error('Supabase no configurado — agrega NEXT_PUBLIC_SUPABASE_URL y NEXT_PUBLIC_SUPABASE_ANON_KEY en .env.local')
   _supabase = createClient(url, key)
   return _supabase
 }
 
-// Cliente singleton para uso en componentes cliente
-export const supabase = new Proxy({} as SupabaseClient, {
-  get: (_target, prop) => getSupabase()[prop as keyof SupabaseClient],
-})
-
 // ============================================================
-// Queries principales
+// Dashboard Queries
 // ============================================================
 
-export async function getMetricas() {
-  const hoy = new Date().toISOString().split('T')[0]
+export async function getDashboardMetrics() {
+  const sb = getSupabase()
+  const today = new Date().toISOString().split('T')[0]
 
-  const [{ data: cuadratura }, { data: alertas }, { data: archivos }] = await Promise.all([
-    supabase
-      .from('cuadratura_diaria')
-      .select('*')
-      .eq('fecha', hoy),
-    supabase
-      .from('alertas')
-      .select('severidad, estado')
-      .in('estado', ['activa', 'en_revision']),
-    supabase
-      .from('archivos')
-      .select('total_trx')
-      .eq('fecha_proceso', hoy),
+  const [
+    { data: todayTxns },
+    { data: settledToday },
+    { data: pendingSettlements },
+    { data: rejectedToday },
+    { data: openDisputes },
+    { data: activeAlerts },
+  ] = await Promise.all([
+    sb.from('transactions').select('id, amount, status').gte('created_at', today + 'T00:00:00'),
+    sb.from('settlements').select('net_amount').eq('status', 'paid').gte('created_at', today + 'T00:00:00'),
+    sb.from('settlements').select('net_amount').in('status', ['pending', 'processing']),
+    sb.from('transactions').select('id').eq('status', 'rejected').gte('created_at', today + 'T00:00:00'),
+    sb.from('disputes').select('id, amount').in('status', ['open', 'under_review', 'representment']),
+    sb.from('alerts').select('id, severity').eq('is_resolved', false),
   ])
 
-  const total_trx_hoy = (archivos ?? [])
-    .filter((a: { total_trx: number }) => true)
-    .reduce((sum: number, a: { total_trx: number }) => sum + a.total_trx, 0)
-
-  const alertas_criticas = (alertas ?? [])
-    .filter((a: { severidad: string }) => a.severidad === 'critica').length
-
-  const diferencia_total = (cuadratura ?? [])
-    .reduce((sum: number, c: { diferencia: number }) => sum + (c.diferencia ?? 0), 0)
+  const totalTxns = todayTxns?.length || 0
+  const totalAmount = todayTxns?.reduce((sum, t) => sum + Number(t.amount), 0) || 0
+  const totalSettled = settledToday?.reduce((sum, s) => sum + Number(s.net_amount), 0) || 0
+  const totalPending = pendingSettlements?.reduce((sum, s) => sum + Number(s.net_amount), 0) || 0
+  const totalRejected = rejectedToday?.length || 0
+  const totalOpenDisputes = openDisputes?.length || 0
+  const totalDisputeAmount = openDisputes?.reduce((sum, d) => sum + Number(d.amount), 0) || 0
 
   return {
-    total_trx_hoy,
-    alertas_criticas,
-    alertas_activas: (alertas ?? []).length,
-    diferencia_total,
-    archivos_hoy: (archivos ?? []).length,
-    ultima_actualizacion: new Date().toISOString(),
+    totalTxns,
+    totalAmount,
+    totalSettled,
+    totalPending,
+    totalRejected,
+    totalOpenDisputes,
+    totalDisputeAmount,
+    activeAlerts: activeAlerts?.length || 0,
+    criticalAlerts: activeAlerts?.filter(a => a.severity === 'critical').length || 0,
   }
 }
 
-export async function getCuadratura7Dias() {
-  const hace7 = new Date()
-  hace7.setDate(hace7.getDate() - 7)
+export async function getTransactionVolume7Days() {
+  const sb = getSupabase()
+  const sevenDaysAgo = new Date()
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
 
-  const { data } = await supabase
-    .from('cuadratura_diaria')
-    .select('*')
-    .gte('fecha', hace7.toISOString().split('T')[0])
-    .order('fecha', { ascending: true })
+  const { data } = await sb
+    .from('transactions')
+    .select('amount, card_brand, created_at')
+    .gte('created_at', sevenDaysAgo.toISOString())
+    .order('created_at', { ascending: true })
 
-  return data ?? []
+  return data || []
 }
 
-export async function getAlertas() {
-  const { data } = await supabase
-    .from('alertas')
+export async function getPaymentMethodDistribution() {
+  const sb = getSupabase()
+  const { data } = await sb
+    .from('transactions')
+    .select('payment_method, amount')
+
+  if (!data) return []
+
+  const grouped = data.reduce((acc, t) => {
+    const method = t.payment_method
+    if (!acc[method]) acc[method] = { method, count: 0, amount: 0 }
+    acc[method].count++
+    acc[method].amount += Number(t.amount)
+    return acc
+  }, {} as Record<string, { method: string; count: number; amount: number }>)
+
+  return Object.values(grouped)
+}
+
+export async function getRecentActivity(limit = 10) {
+  const sb = getSupabase()
+  const { data } = await sb
+    .from('transactions')
+    .select('*, merchants(name)')
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  return data || []
+}
+
+export async function getTopMerchants(limit = 5) {
+  const sb = getSupabase()
+  const { data } = await sb
+    .from('settlements')
+    .select('gross_amount, transaction_count, merchants(name)')
+    .order('gross_amount', { ascending: false })
+    .limit(limit)
+
+  return data || []
+}
+
+// ============================================================
+// Transactions
+// ============================================================
+
+export async function getTransactions(filters?: {
+  status?: string
+  card_brand?: string
+  merchant_id?: string
+  from_date?: string
+  to_date?: string
+  limit?: number
+}) {
+  const sb = getSupabase()
+  let query = sb
+    .from('transactions')
+    .select('*, merchants(name)')
+    .order('created_at', { ascending: false })
+    .limit(filters?.limit || 50)
+
+  if (filters?.status) query = query.eq('status', filters.status)
+  if (filters?.card_brand) query = query.eq('card_brand', filters.card_brand)
+  if (filters?.merchant_id) query = query.eq('merchant_id', filters.merchant_id)
+  if (filters?.from_date) query = query.gte('created_at', filters.from_date + 'T00:00:00')
+  if (filters?.to_date) query = query.lte('created_at', filters.to_date + 'T23:59:59')
+
+  const { data } = await query
+  return data || []
+}
+
+// ============================================================
+// Clearing
+// ============================================================
+
+export async function getClearingBatches() {
+  const sb = getSupabase()
+  const { data } = await sb
+    .from('clearing_batches')
     .select('*')
     .order('created_at', { ascending: false })
 
-  return data ?? []
+  return data || []
 }
 
-export async function getArchivos(limit = 50) {
-  const { data } = await supabase
-    .from('archivos')
+// ============================================================
+// Settlements
+// ============================================================
+
+export async function getSettlements() {
+  const sb = getSupabase()
+  const { data } = await sb
+    .from('settlements')
+    .select('*, merchants(name)')
+    .order('settlement_date', { ascending: false })
+
+  return data || []
+}
+
+// ============================================================
+// Reconciliation
+// ============================================================
+
+export async function getReconciliationItems() {
+  const sb = getSupabase()
+  const { data } = await sb
+    .from('reconciliation_items')
     .select('*')
-    .order('recibido_at', { ascending: false })
-    .limit(limit)
+    .order('reconciliation_date', { ascending: false })
 
-  return data ?? []
+  return data || []
 }
 
-export async function actualizarAlerta(
-  id: string,
-  estado: 'activa' | 'en_revision' | 'resuelta' | 'ignorada',
-  resuelto_por?: string
-) {
-  const update: Record<string, unknown> = { estado }
-  if (estado === 'resuelta') {
-    update.resuelto_at  = new Date().toISOString()
-    update.resuelto_por = resuelto_por ?? 'Usuario'
-  }
-  const { error } = await supabase
-    .from('alertas')
-    .update(update)
+// ============================================================
+// Fee Rules
+// ============================================================
+
+export async function getFeeRules() {
+  const sb = getSupabase()
+  const { data } = await sb
+    .from('fee_rules')
+    .select('*')
+    .order('card_brand', { ascending: true })
+
+  return data || []
+}
+
+export async function toggleFeeRule(id: string, isActive: boolean) {
+  const sb = getSupabase()
+  const { error } = await sb
+    .from('fee_rules')
+    .update({ is_active: isActive, updated_at: new Date().toISOString() })
     .eq('id', id)
-
   return !error
 }
 
-export async function insertarArchivo(archivo: {
-  nombre: string
-  tipo: 'SVXP' | 'CTF' | 'IPM'
-  marca: string
-  fecha_proceso: string
-  total_trx: number
-  estado: 'procesando' | 'ok' | 'error' | 'advertencia'
-  notas?: string
-}) {
-  const { data, error } = await supabase
-    .from('archivos')
-    .insert(archivo)
-    .select()
-    .single()
+// ============================================================
+// Disputes
+// ============================================================
 
-  if (error) throw error
-  return data
+export async function getDisputes() {
+  const sb = getSupabase()
+  const { data } = await sb
+    .from('disputes')
+    .select('*, merchants(name), transactions(reference_id, card_last_four)')
+    .order('created_at', { ascending: false })
+
+  return data || []
 }
 
-export async function insertarTransacciones(
-  trxs: Array<{
-    archivo_id: string
-    trx_id: string
-    tipo_trx: string
-    marca: string
-    monto: number
-    moneda: string
-    fecha_trx: string
-    estado: string
-    merchant_number?: string
-    nombre_comercio?: string
-    mcc?: string
-    terminal_number?: string
-    originator_refnum?: string
-    card_number?: string
-    auth_code?: string
-    klap_codigo?: string
-    klap_codigo_original?: string
-    es_cuota?: boolean
-    notas?: string
-  }>
-) {
-  // Insertar en lotes de 500 para no exceder límites
-  const BATCH = 500
-  let insertadas = 0
+// ============================================================
+// Operational Events
+// ============================================================
 
-  for (let i = 0; i < trxs.length; i += BATCH) {
-    const lote = trxs.slice(i, i + BATCH)
-    const { error } = await supabase.from('transacciones').insert(lote)
-    if (error) throw error
-    insertadas += lote.length
-  }
+export async function getOperationalEvents() {
+  const sb = getSupabase()
+  const { data } = await sb
+    .from('operational_events')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(50)
 
-  return insertadas
+  return data || []
 }
 
-export async function insertarAlerta(alerta: {
-  tipo: string
-  severidad: string
-  marca?: string
-  fecha_proceso?: string
-  titulo: string
-  detalle?: string
-  cantidad_trx?: number
-  archivo_id?: string
-}) {
-  const { error } = await supabase
-    .from('alertas')
-    .insert({ ...alerta, estado: 'activa' })
+// ============================================================
+// Alerts
+// ============================================================
 
-  return !error
+export async function getAlerts() {
+  const sb = getSupabase()
+  const { data } = await sb
+    .from('alerts')
+    .select('*')
+    .order('created_at', { ascending: false })
+
+  return data || []
 }
 
-export async function insertarCuadratura(rows: Array<{
-  fecha: string
-  marca: string
-  trx_svxp: number
-  trx_ctf: number
-  trx_ipm: number
-  trx_error: number
-  trx_frozen: number
-  trx_excluidas: number
-  estado: string
-  notas?: string
-}>) {
-  const { error } = await supabase
-    .from('cuadratura_diaria')
-    .upsert(rows, { onConflict: 'fecha,marca' })
+// ============================================================
+// Merchants
+// ============================================================
 
-  return !error
+export async function getMerchants() {
+  const sb = getSupabase()
+  const { data } = await sb
+    .from('merchants')
+    .select('*')
+    .order('name', { ascending: true })
+
+  return data || []
 }
