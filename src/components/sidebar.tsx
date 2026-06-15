@@ -14,6 +14,7 @@ import {
   Activity,
   Zap,
   Play,
+  Unplug,
 } from 'lucide-react'
 
 const navItems = [
@@ -26,6 +27,7 @@ const navItems = [
   { href: '/disputas', label: 'Disputas', icon: ShieldAlert },
   { href: '/monitor', label: 'Monitor', icon: Activity },
   { href: '/demo', label: 'Demo Flow', icon: Play },
+  { href: '/independencia', label: 'Independencia BPC', icon: Unplug },
 ]
 
 export function Sidebar() {
