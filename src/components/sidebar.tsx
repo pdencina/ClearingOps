@@ -18,6 +18,7 @@ import {
   Store,
   Cpu,
   Code2,
+  Workflow,
 } from 'lucide-react'
 
 const navItems = [
@@ -31,6 +32,7 @@ const navItems = [
   { href: '/disputas', label: 'Disputas', icon: ShieldAlert },
   { href: '/monitor', label: 'Monitor', icon: Activity },
   { href: '/engine', label: 'KLAP Engine', icon: Cpu },
+  { href: '/pipeline', label: 'Pipeline', icon: Workflow },
   { href: '/apis', label: 'API Reference', icon: Code2 },
   { href: '/demo', label: 'Demo Flow', icon: Play },
   { href: '/independencia', label: 'Independencia BPC', icon: Unplug },

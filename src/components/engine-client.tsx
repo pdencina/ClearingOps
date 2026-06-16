@@ -33,6 +33,10 @@ export function EngineClient({ merchants }: Props) {
         description="Motores de procesamiento propios — lo que reemplaza a BPC SmartVista"
       />
 
+      <a href="/pipeline" className="block mb-4 p-3 rounded-lg border border-accent/20 bg-accent/5 hover:bg-accent/10 transition-all">
+        <p className="text-sm text-accent font-medium">¿Quieres ejecutar el pipeline completo? Autorización → Fraude → Liquidación → Webhook en un solo click →</p>
+      </a>
+
       {/* Tabs */}
       <div className="flex items-center gap-1 p-1 bg-card rounded-lg border border-border w-fit flex-wrap">
         {[
