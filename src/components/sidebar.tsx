@@ -15,11 +15,13 @@ import {
   Zap,
   Play,
   Unplug,
+  Store,
 } from 'lucide-react'
 
 const navItems = [
   { href: '/', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/transacciones', label: 'Transacciones', icon: ArrowLeftRight },
+  { href: '/comercios', label: 'Comercios', icon: Store },
   { href: '/clearing', label: 'Clearing', icon: Layers },
   { href: '/liquidaciones', label: 'Liquidaciones', icon: Wallet },
   { href: '/conciliacion', label: 'Conciliación', icon: Scale },

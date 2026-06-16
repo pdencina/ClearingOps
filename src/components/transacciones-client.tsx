@@ -3,10 +3,10 @@
 import { useState } from 'react'
 import { PageHeader } from '@/components/ui/page-header'
 import { Badge } from '@/components/ui/badge'
-import { DataTable } from '@/components/ui/data-table'
 import { Card } from '@/components/ui/card'
-import { formatCurrency, formatDate, getStatusColor } from '@/lib/utils'
-import { Search, Filter } from 'lucide-react'
+import { MetricCard } from '@/components/ui/metric-card'
+import { formatCurrency, formatDate, getStatusColor, formatNumber } from '@/lib/utils'
+import { Search, Filter, ArrowLeftRight, CheckCircle2, XCircle, Clock, X } from 'lucide-react'
 
 interface Props {
   transactions: Array<Record<string, unknown>>
@@ -17,6 +17,7 @@ export function TransaccionesClient({ transactions, merchants }: Props) {
   const [statusFilter, setStatusFilter] = useState('')
   const [brandFilter, setBrandFilter] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
+  const [selectedTxn, setSelectedTxn] = useState<Record<string, unknown> | null>(null)
 
   const filtered = transactions.filter(t => {
     if (statusFilter && t.status !== statusFilter) return false
@@ -30,64 +31,22 @@ export function TransaccionesClient({ transactions, merchants }: Props) {
     return true
   })
 
-  const columns = [
-    {
-      key: 'reference_id',
-      header: 'Referencia',
-      render: (row: Record<string, unknown>) => (
-        <span className="font-mono text-xs text-accent">{row.reference_id as string}</span>
-      ),
-    },
-    {
-      key: 'merchant',
-      header: 'Comercio',
-      render: (row: Record<string, unknown>) => (
-        <span className="text-foreground">{(row.merchants as Record<string, string>)?.name || '—'}</span>
-      ),
-    },
-    {
-      key: 'amount',
-      header: 'Monto',
-      render: (row: Record<string, unknown>) => (
-        <span className="font-medium text-foreground">{formatCurrency(row.amount as number)}</span>
-      ),
-    },
-    {
-      key: 'card_brand',
-      header: 'Marca',
-      render: (row: Record<string, unknown>) => (
-        <div className="flex items-center gap-2">
-          <span className="uppercase text-xs font-medium">{row.card_brand as string}</span>
-          <span className="text-muted text-xs">•••• {row.card_last_four as string}</span>
-        </div>
-      ),
-    },
-    {
-      key: 'payment_method',
-      header: 'Método',
-      render: (row: Record<string, unknown>) => (
-        <span className="text-xs text-muted capitalize">{row.payment_method as string}</span>
-      ),
-    },
-    {
-      key: 'status',
-      header: 'Estado',
-      render: (row: Record<string, unknown>) => (
-        <Badge variant={getStatusColor(row.status as string)}>{row.status as string}</Badge>
-      ),
-    },
-    {
-      key: 'created_at',
-      header: 'Fecha',
-      render: (row: Record<string, unknown>) => (
-        <span className="text-xs text-muted">{formatDate(row.created_at as string)}</span>
-      ),
-    },
-  ]
+  const totalAmount = filtered.reduce((sum, t) => sum + Number(t.amount), 0)
+  const settledCount = filtered.filter(t => t.status === 'settled').length
+  const rejectedCount = filtered.filter(t => t.status === 'rejected').length
+  const pendingCount = filtered.filter(t => t.status === 'authorized' || t.status === 'captured').length
 
   return (
     <div className="space-y-6 animate-fade-in">
       <PageHeader title="Transacciones" description="Historial completo de transacciones procesadas" />
+
+      {/* Summary Metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <MetricCard title="Total Filtradas" value={formatNumber(filtered.length)} icon={ArrowLeftRight} />
+        <MetricCard title="Monto Total" value={formatCurrency(totalAmount)} icon={CheckCircle2} iconColor="bg-emerald-500/10" />
+        <MetricCard title="Rechazadas" value={rejectedCount} icon={XCircle} iconColor="bg-red-500/10" />
+        <MetricCard title="Pendientes" value={pendingCount} icon={Clock} iconColor="bg-yellow-500/10" />
+      </div>
 
       {/* Filters */}
       <Card className="!p-4">
@@ -133,7 +92,123 @@ export function TransaccionesClient({ transactions, merchants }: Props) {
       </Card>
 
       {/* Table */}
-      <DataTable columns={columns} data={filtered} />
+      <div className="rounded-xl border border-border overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-border bg-card">
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Referencia</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Comercio</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Monto</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Marca</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Método</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Estado</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-muted uppercase tracking-wider">Fecha</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {filtered.map((txn) => (
+                <tr
+                  key={txn.id as string}
+                  onClick={() => setSelectedTxn(txn)}
+                  className="bg-card/50 hover:bg-card cursor-pointer transition-colors"
+                >
+                  <td className="px-4 py-3 text-sm font-mono text-xs text-accent">{txn.reference_id as string}</td>
+                  <td className="px-4 py-3 text-sm text-foreground">{(txn.merchants as Record<string, string>)?.name || '—'}</td>
+                  <td className="px-4 py-3 text-sm font-medium text-foreground">{formatCurrency(txn.amount as number)}</td>
+                  <td className="px-4 py-3 text-sm">
+                    <span className="uppercase text-xs font-medium">{txn.card_brand as string}</span>
+                    <span className="text-muted text-xs ml-1">•••• {txn.card_last_four as string}</span>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-muted capitalize">{txn.payment_method as string}</td>
+                  <td className="px-4 py-3"><Badge variant={getStatusColor(txn.status as string)}>{txn.status as string}</Badge></td>
+                  <td className="px-4 py-3 text-xs text-muted">{formatDate(txn.created_at as string)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {filtered.length === 0 && (
+          <div className="p-8 text-center text-muted text-sm">No hay transacciones que coincidan con los filtros</div>
+        )}
+      </div>
+
+      {/* Transaction Detail Panel */}
+      {selectedTxn && (
+        <div className="fixed inset-0 z-50 flex justify-end" onClick={() => setSelectedTxn(null)}>
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+          <div
+            className="relative w-full max-w-md bg-sidebar border-l border-border h-full overflow-y-auto animate-fade-in"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-6 space-y-6">
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-foreground">Detalle de Transacción</h2>
+                <button onClick={() => setSelectedTxn(null)} className="p-1 rounded hover:bg-card-hover text-muted">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Status */}
+              <div className="flex items-center gap-3">
+                <Badge variant={getStatusColor(selectedTxn.status as string)} className="text-sm px-3 py-1">
+                  {selectedTxn.status as string}
+                </Badge>
+                <span className="text-2xl font-bold text-foreground">{formatCurrency(selectedTxn.amount as number)}</span>
+              </div>
+
+              {/* Details Grid */}
+              <div className="space-y-4">
+                <DetailSection title="Transacción">
+                  <DetailRow label="Referencia" value={selectedTxn.reference_id as string} mono />
+                  <DetailRow label="Auth Code" value={selectedTxn.auth_code as string} mono />
+                  <DetailRow label="Fecha" value={formatDate(selectedTxn.created_at as string)} />
+                  <DetailRow label="Cuotas" value={`${selectedTxn.installments || 1}`} />
+                </DetailSection>
+
+                <DetailSection title="Tarjeta">
+                  <DetailRow label="Marca" value={(selectedTxn.card_brand as string)?.toUpperCase()} />
+                  <DetailRow label="Tipo" value={(selectedTxn.card_type as string)} />
+                  <DetailRow label="Últimos 4" value={`•••• ${selectedTxn.card_last_four}`} />
+                  <DetailRow label="Método" value={(selectedTxn.payment_method as string)} />
+                </DetailSection>
+
+                <DetailSection title="Comercio">
+                  <DetailRow label="Nombre" value={(selectedTxn.merchants as Record<string, string>)?.name || '—'} />
+                  <DetailRow label="ID" value={(selectedTxn.merchant_id as string)?.slice(0, 8) + '...'} mono />
+                </DetailSection>
+
+                {selectedTxn.rejection_reason && (
+                  <DetailSection title="Rechazo">
+                    <div className="p-3 rounded-lg bg-red-500/5 border border-red-500/10">
+                      <p className="text-sm text-red-400">{selectedTxn.rejection_reason as string}</p>
+                    </div>
+                  </DetailSection>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DetailSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="border-t border-border pt-4">
+      <p className="text-[10px] uppercase tracking-widest text-muted mb-3 font-medium">{title}</p>
+      <div className="space-y-2">{children}</div>
+    </div>
+  )
+}
+
+function DetailRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-xs text-muted">{label}</span>
+      <span className={`text-xs text-foreground ${mono ? 'font-mono' : ''}`}>{value || '—'}</span>
     </div>
   )
 }

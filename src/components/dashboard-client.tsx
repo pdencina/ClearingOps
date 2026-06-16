@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { MetricCard } from '@/components/ui/metric-card'
 import { Card, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -14,6 +15,8 @@ import {
   ShieldAlert,
   Bell,
   TrendingUp,
+  Zap,
+  Loader2,
 } from 'lucide-react'
 import {
   AreaChart,
@@ -25,6 +28,8 @@ import {
   PieChart,
   Pie,
   Cell,
+  BarChart,
+  Bar,
 } from 'recharts'
 
 const COLORS = ['#6366f1', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b']
@@ -56,6 +61,27 @@ interface DashboardClientProps {
 }
 
 export function DashboardClient({ metrics, volume, distribution, activity, topMerchants, alerts }: DashboardClientProps) {
+  const [simulating, setSimulating] = useState(false)
+  const [simResult, setSimResult] = useState<string | null>(null)
+
+  const simulateTransaction = async () => {
+    setSimulating(true)
+    setSimResult(null)
+    try {
+      const res = await fetch('/api/simulate', { method: 'POST' })
+      const data = await res.json()
+      if (data.success) {
+        setSimResult(`✓ ${data.transaction.merchants?.name} — $${Number(data.transaction.amount).toLocaleString()} (${data.transaction.card_brand})`)
+        setTimeout(() => setSimResult(null), 5000)
+      } else {
+        setSimResult(`✗ Error: ${data.error}`)
+      }
+    } catch {
+      setSimResult('✗ Error de conexión')
+    }
+    setSimulating(false)
+  }
+
   // Group volume by day for chart
   const volumeByDay = volume.reduce((acc, t) => {
     const day = new Date(t.created_at).toLocaleDateString('es-CL', { weekday: 'short', day: '2-digit' })
@@ -78,7 +104,27 @@ export function DashboardClient({ metrics, volume, distribution, activity, topMe
       <PageHeader
         title="Dashboard"
         description="Vista general del sistema de pagos KLAP"
-      />
+      >
+        <button
+          onClick={simulateTransaction}
+          disabled={simulating}
+          className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-all flex items-center gap-2"
+        >
+          {simulating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
+          Simular Transacción
+        </button>
+      </PageHeader>
+
+      {/* Simulation Result */}
+      {simResult && (
+        <div className={`p-3 rounded-lg border text-sm animate-fade-in ${
+          simResult.startsWith('✓')
+            ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400'
+            : 'bg-red-500/5 border-red-500/20 text-red-400'
+        }`}>
+          {simResult}
+        </div>
+      )}
 
       {/* Metrics Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -280,6 +326,33 @@ export function DashboardClient({ metrics, volume, distribution, activity, topMe
           </div>
         </Card>
       </div>
+
+      {/* Brand Volume Bar Chart */}
+      <Card>
+        <CardTitle>Volumen por Marca (7 días)</CardTitle>
+        <div className="h-48 mt-4">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={(() => {
+              const brandData = volume.reduce((acc, t) => {
+                const brand = t.card_brand
+                if (!acc[brand]) acc[brand] = { brand: brand.charAt(0).toUpperCase() + brand.slice(1), amount: 0, count: 0 }
+                acc[brand].amount += Number(t.amount)
+                acc[brand].count++
+                return acc
+              }, {} as Record<string, { brand: string; amount: number; count: number }>)
+              return Object.values(brandData)
+            })()}>
+              <XAxis dataKey="brand" stroke="#8888a0" fontSize={11} tickLine={false} axisLine={false} />
+              <YAxis stroke="#8888a0" fontSize={11} tickLine={false} axisLine={false} tickFormatter={(v) => `$${(v / 1000000).toFixed(1)}M`} />
+              <Tooltip
+                contentStyle={{ background: '#12121a', border: '1px solid #1e1e2e', borderRadius: '8px', fontSize: '12px' }}
+                formatter={(value: number) => [formatCurrency(value), 'Monto']}
+              />
+              <Bar dataKey="amount" fill="#6366f1" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </Card>
     </div>
   )
 }

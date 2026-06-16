@@ -1,77 +1,56 @@
 'use client'
 
+import { useState } from 'react'
 import { PageHeader } from '@/components/ui/page-header'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardTitle } from '@/components/ui/card'
-import { DataTable } from '@/components/ui/data-table'
-import { formatCurrency, formatNumber, formatDate, getStatusColor } from '@/lib/utils'
-import { Layers, FileText, Send, CheckCircle2 } from 'lucide-react'
+import { formatCurrency, formatNumber, formatDate, getStatusColor, cn } from '@/lib/utils'
+import { Layers, FileText, Send, CheckCircle2, XCircle, Clock, AlertCircle } from 'lucide-react'
 
 interface Props {
   batches: Array<Record<string, unknown>>
 }
 
-export function ClearingClient({ batches }: Props) {
-  const visaBatches = batches.filter(b => b.card_brand === 'visa')
-  const mcBatches = batches.filter(b => b.card_brand === 'mastercard')
+const statusOrder = ['pending', 'processing', 'generated', 'sent', 'confirmed']
 
-  const columns = [
-    {
-      key: 'batch_number',
-      header: 'Batch',
-      render: (row: Record<string, unknown>) => (
-        <span className="font-mono text-xs text-accent">{row.batch_number as string}</span>
-      ),
-    },
-    {
-      key: 'card_brand',
-      header: 'Marca',
-      render: (row: Record<string, unknown>) => (
-        <span className="uppercase text-xs font-medium">{row.card_brand as string}</span>
-      ),
-    },
-    {
-      key: 'transaction_count',
-      header: 'Transacciones',
-      render: (row: Record<string, unknown>) => (
-        <span className="text-foreground">{formatNumber(row.transaction_count as number)}</span>
-      ),
-    },
-    {
-      key: 'total_amount',
-      header: 'Monto Total',
-      render: (row: Record<string, unknown>) => (
-        <span className="font-medium text-foreground">{formatCurrency(row.total_amount as number)}</span>
-      ),
-    },
-    {
-      key: 'file_name',
-      header: 'Archivo',
-      render: (row: Record<string, unknown>) => (
-        row.file_name
-          ? <span className="font-mono text-xs text-muted">{row.file_name as string}</span>
-          : <span className="text-xs text-muted italic">No generado</span>
-      ),
-    },
-    {
-      key: 'status',
-      header: 'Estado',
-      render: (row: Record<string, unknown>) => (
-        <Badge variant={getStatusColor(row.status as string)}>{row.status as string}</Badge>
-      ),
-    },
-    {
-      key: 'created_at',
-      header: 'Creado',
-      render: (row: Record<string, unknown>) => (
-        <span className="text-xs text-muted">{formatDate(row.created_at as string)}</span>
-      ),
-    },
-  ]
+function BatchProgress({ status }: { status: string }) {
+  const currentIndex = statusOrder.indexOf(status)
+  const isFailed = status === 'failed'
+
+  return (
+    <div className="flex items-center gap-1 mt-2">
+      {statusOrder.map((s, i) => (
+        <div key={s} className="flex items-center gap-1">
+          <div className={cn(
+            'w-2 h-2 rounded-full transition-all',
+            isFailed ? 'bg-red-500/30' :
+            i <= currentIndex ? 'bg-accent' : 'bg-border'
+          )} />
+          {i < statusOrder.length - 1 && (
+            <div className={cn(
+              'w-4 h-0.5',
+              isFailed ? 'bg-red-500/30' :
+              i < currentIndex ? 'bg-accent' : 'bg-border'
+            )} />
+          )}
+        </div>
+      ))}
+      {isFailed && <XCircle className="w-3 h-3 text-red-400 ml-1" />}
+    </div>
+  )
+}
+
+export function ClearingClient({ batches }: Props) {
+  const [activeTab, setActiveTab] = useState<'all' | 'visa' | 'mastercard'>('all')
+
+  const filteredBatches = activeTab === 'all'
+    ? batches
+    : batches.filter(b => b.card_brand === activeTab)
 
   const totalConfirmed = batches.filter(b => b.status === 'confirmed').length
   const totalSent = batches.filter(b => b.status === 'sent').length
   const totalPending = batches.filter(b => b.status === 'pending' || b.status === 'processing').length
+  const totalFailed = batches.filter(b => b.status === 'failed').length
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -109,7 +88,7 @@ export function ClearingClient({ batches }: Props) {
         <Card>
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-yellow-500/10 flex items-center justify-center">
-              <Layers className="w-4 h-4 text-yellow-400" />
+              <Clock className="w-4 h-4 text-yellow-400" />
             </div>
             <div>
               <p className="text-xs text-muted">Pendientes</p>
@@ -119,19 +98,81 @@ export function ClearingClient({ batches }: Props) {
         </Card>
         <Card>
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-blue-500/10 flex items-center justify-center">
-              <FileText className="w-4 h-4 text-blue-400" />
+            <div className="w-9 h-9 rounded-lg bg-red-500/10 flex items-center justify-center">
+              <AlertCircle className="w-4 h-4 text-red-400" />
             </div>
             <div>
-              <p className="text-xs text-muted">Total Batches</p>
-              <p className="text-xl font-bold text-foreground">{batches.length}</p>
+              <p className="text-xs text-muted">Fallidos</p>
+              <p className="text-xl font-bold text-red-400">{totalFailed}</p>
             </div>
           </div>
         </Card>
       </div>
 
-      {/* Batches Table */}
-      <DataTable columns={columns} data={batches} />
+      {/* Tabs */}
+      <div className="flex items-center gap-1 p-1 bg-card rounded-lg border border-border w-fit">
+        {[
+          { key: 'all', label: 'Todos' },
+          { key: 'visa', label: 'Visa' },
+          { key: 'mastercard', label: 'Mastercard' },
+        ].map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key as 'all' | 'visa' | 'mastercard')}
+            className={cn(
+              'px-4 py-2 rounded-md text-sm font-medium transition-all',
+              activeTab === tab.key ? 'bg-accent text-white' : 'text-muted hover:text-foreground'
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Batch Cards */}
+      <div className="space-y-3">
+        {filteredBatches.map((batch) => (
+          <Card key={batch.id as string} className="!p-4">
+            <div className="flex items-center gap-4">
+              {/* Icon */}
+              <div className={cn(
+                'w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0',
+                batch.card_brand === 'visa' ? 'bg-blue-500/10' : 'bg-orange-500/10'
+              )}>
+                <FileText className={cn(
+                  'w-5 h-5',
+                  batch.card_brand === 'visa' ? 'text-blue-400' : 'text-orange-400'
+                )} />
+              </div>
+
+              {/* Info */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-3">
+                  <span className="font-mono text-sm text-accent font-medium">{batch.batch_number as string}</span>
+                  <Badge variant={getStatusColor(batch.status as string)}>{batch.status as string}</Badge>
+                </div>
+                <BatchProgress status={batch.status as string} />
+              </div>
+
+              {/* Stats */}
+              <div className="text-right flex-shrink-0 hidden sm:block">
+                <p className="text-sm font-medium text-foreground">{formatCurrency(batch.total_amount as number)}</p>
+                <p className="text-xs text-muted">{formatNumber(batch.transaction_count as number)} transacciones</p>
+              </div>
+
+              {/* File */}
+              <div className="text-right flex-shrink-0 hidden md:block">
+                {batch.file_name ? (
+                  <p className="font-mono text-[10px] text-muted">{batch.file_name as string}</p>
+                ) : (
+                  <p className="text-xs text-muted italic">Sin archivo</p>
+                )}
+                <p className="text-[10px] text-muted mt-0.5">{formatDate(batch.created_at as string)}</p>
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
     </div>
   )
 }
