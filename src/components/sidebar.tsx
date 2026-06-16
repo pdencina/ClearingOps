@@ -20,6 +20,8 @@ import {
   Code2,
   Workflow,
   Radio,
+  HeartPulse,
+  Timer,
 } from 'lucide-react'
 
 const navItems = [
@@ -32,6 +34,8 @@ const navItems = [
   { href: '/reglas', label: 'Reglas & Fees', icon: Settings },
   { href: '/disputas', label: 'Disputas', icon: ShieldAlert },
   { href: '/monitor', label: 'Monitor', icon: Activity },
+  { href: '/health', label: 'Health & SLA', icon: HeartPulse },
+  { href: '/jobs', label: 'Jobs', icon: Timer },
   { href: '/engine', label: 'KLAP Engine', icon: Cpu },
   { href: '/pipeline', label: 'Pipeline', icon: Workflow },
   { href: '/switch', label: 'Switch ISO', icon: Radio },
