@@ -14,13 +14,14 @@ import {
   CheckCircle2,
   XCircle,
   ChevronRight,
+  ShieldAlert,
 } from 'lucide-react'
 
 interface Props {
   merchants: Array<Record<string, unknown>>
 }
 
-type Tab = 'authorize' | 'clearing' | 'settlement'
+type Tab = 'authorize' | 'clearing' | 'settlement' | 'fraud'
 
 export function EngineClient({ merchants }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('authorize')
@@ -33,11 +34,12 @@ export function EngineClient({ merchants }: Props) {
       />
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 p-1 bg-card rounded-lg border border-border w-fit">
+      <div className="flex items-center gap-1 p-1 bg-card rounded-lg border border-border w-fit flex-wrap">
         {[
-          { key: 'authorize' as Tab, label: 'Authorization Engine', icon: Zap },
-          { key: 'clearing' as Tab, label: 'Clearing Engine', icon: Layers },
-          { key: 'settlement' as Tab, label: 'Settlement Engine', icon: Wallet },
+          { key: 'authorize' as Tab, label: 'Authorization', icon: Zap },
+          { key: 'fraud' as Tab, label: 'Fraud Detection', icon: ShieldAlert },
+          { key: 'clearing' as Tab, label: 'Clearing', icon: Layers },
+          { key: 'settlement' as Tab, label: 'Settlement', icon: Wallet },
         ].map((tab) => (
           <button
             key={tab.key}
@@ -54,6 +56,7 @@ export function EngineClient({ merchants }: Props) {
       </div>
 
       {activeTab === 'authorize' && <AuthorizationPanel merchants={merchants} />}
+      {activeTab === 'fraud' && <FraudPanel />}
       {activeTab === 'clearing' && <ClearingPanel />}
       {activeTab === 'settlement' && <SettlementPanel merchants={merchants} />}
     </div>
@@ -571,6 +574,206 @@ function SettlementPanel({ merchants }: { merchants: Array<Record<string, unknow
                     ))}
                   </pre>
                 </div>
+              </div>
+            )}
+          </div>
+        )}
+        {result?.error && (
+          <div className="mt-4 p-4 rounded-lg bg-red-500/5 border border-red-500/20">
+            <p className="text-sm text-red-400">{result.error as string}</p>
+          </div>
+        )}
+      </Card>
+    </div>
+  )
+}
+
+// ============================================================
+// Fraud Detection Panel
+// ============================================================
+function FraudPanel() {
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState<Record<string, unknown> | null>(null)
+  const [form, setForm] = useState({
+    amount: '180000',
+    card_brand: 'visa',
+    card_type: 'credit',
+    card_last_four: '4521',
+    payment_method: 'ecommerce',
+    merchant_category: 'electronics',
+    installments: '6',
+    country: 'CL',
+    city: 'Santiago',
+    device: 'fp_a8c3d2e1f0',
+  })
+
+  const handleCheck = async () => {
+    setLoading(true)
+    setResult(null)
+    try {
+      const res = await fetch('/api/fraud/check', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transaction_id: `txn_${Date.now().toString(36)}`,
+          amount: Number(form.amount),
+          card_brand: form.card_brand,
+          card_type: form.card_type,
+          card_last_four: form.card_last_four,
+          payment_method: form.payment_method,
+          merchant_id: 'a1b2c3d4-0001-4000-8000-000000000001',
+          merchant_category: form.merchant_category,
+          installments: Number(form.installments),
+          geolocation: { country: form.country, city: form.city },
+          device_fingerprint: form.device,
+        }),
+      })
+      const data = await res.json()
+      setResult(data)
+    } catch {
+      setResult({ error: 'Error de conexión' })
+    }
+    setLoading(false)
+  }
+
+  const decisionColors: Record<string, string> = {
+    approve: 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400',
+    review: 'bg-yellow-500/5 border-yellow-500/20 text-yellow-400',
+    block: 'bg-red-500/5 border-red-500/20 text-red-400',
+  }
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <Card>
+        <CardTitle>Análisis Antifraude</CardTitle>
+        <p className="text-xs text-muted mt-1 mb-4">Ejecuta 8 checks de fraude incluyendo ML model, velocity, geolocation y device fingerprint</p>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[10px] uppercase tracking-wide text-muted mb-1 block">Monto</label>
+              <input type="number" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground" />
+            </div>
+            <div>
+              <label className="text-[10px] uppercase tracking-wide text-muted mb-1 block">Cuotas</label>
+              <input type="number" value={form.installments} onChange={e => setForm({...form, installments: e.target.value})} className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[10px] uppercase tracking-wide text-muted mb-1 block">Método</label>
+              <select value={form.payment_method} onChange={e => setForm({...form, payment_method: e.target.value})} className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground">
+                <option value="card">Tarjeta</option>
+                <option value="contactless">Contactless</option>
+                <option value="ecommerce">E-commerce</option>
+                <option value="qr">QR</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] uppercase tracking-wide text-muted mb-1 block">Categoría Merchant</label>
+              <select value={form.merchant_category} onChange={e => setForm({...form, merchant_category: e.target.value})} className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground">
+                <option value="retail">Retail</option>
+                <option value="electronics">Electrónica</option>
+                <option value="food">Alimentación</option>
+                <option value="travel_agency">Agencia de Viajes</option>
+                <option value="gambling">Gambling</option>
+                <option value="crypto">Crypto</option>
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[10px] uppercase tracking-wide text-muted mb-1 block">País</label>
+              <select value={form.country} onChange={e => setForm({...form, country: e.target.value})} className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground">
+                <option value="CL">Chile</option>
+                <option value="US">Estados Unidos</option>
+                <option value="NG">Nigeria</option>
+                <option value="RU">Rusia</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] uppercase tracking-wide text-muted mb-1 block">Device Fingerprint</label>
+              <input type="text" value={form.device} onChange={e => setForm({...form, device: e.target.value})} className="w-full px-3 py-2 bg-background border border-border rounded-lg text-sm text-foreground font-mono" />
+            </div>
+          </div>
+          <button onClick={handleCheck} disabled={loading} className="w-full mt-2 px-4 py-3 bg-gradient-to-r from-rose-600 to-pink-600 hover:from-rose-500 hover:to-pink-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-all flex items-center justify-center gap-2">
+            {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldAlert className="w-4 h-4" />}
+            Ejecutar Fraud Check
+          </button>
+        </div>
+      </Card>
+
+      {/* Result */}
+      <Card>
+        <CardTitle>Resultado Antifraude</CardTitle>
+        {!result && !loading && (
+          <div className="mt-8 text-center text-muted">
+            <ShieldAlert className="w-12 h-12 mx-auto mb-3 opacity-20" />
+            <p className="text-sm">Ejecuta un check para ver el análisis completo</p>
+          </div>
+        )}
+        {loading && (
+          <div className="mt-8 text-center">
+            <Loader2 className="w-8 h-8 mx-auto mb-3 text-rose-400 animate-spin" />
+            <p className="text-sm text-muted">Ejecutando modelo antifraude...</p>
+          </div>
+        )}
+        {result && !result.error && (
+          <div className="mt-4 space-y-4 animate-fade-in">
+            {/* Decision */}
+            <div className={cn('p-4 rounded-lg border flex items-center gap-4', decisionColors[result.decision as string] || '')}>
+              <div className="text-3xl font-bold">{result.fraud_score as number}<span className="text-sm font-normal text-muted">/{result.max_score as number}</span></div>
+              <div>
+                <p className="text-lg font-bold uppercase">{result.decision as string}</p>
+                <p className="text-xs opacity-70">Risk Level: {result.risk_level as string}</p>
+              </div>
+              <div className="ml-auto text-right text-xs">
+                <p className="text-muted">ML Model</p>
+                <p className="font-mono">{result.ml_model_version as string}</p>
+                <p className="text-muted mt-1">{result.processing_time_ms as number}ms</p>
+              </div>
+            </div>
+
+            {/* Score bar */}
+            <div className="relative h-3 bg-card-hover rounded-full overflow-hidden">
+              <div
+                className={cn('absolute left-0 top-0 h-full rounded-full transition-all', (result.fraud_score as number) < 20 ? 'bg-emerald-500' : (result.fraud_score as number) < 40 ? 'bg-yellow-500' : (result.fraud_score as number) < 60 ? 'bg-orange-500' : 'bg-red-500')}
+                style={{ width: `${result.fraud_score as number}%` }}
+              />
+              <div className="absolute left-[20%] top-0 h-full w-px bg-border" />
+              <div className="absolute left-[40%] top-0 h-full w-px bg-border" />
+              <div className="absolute left-[60%] top-0 h-full w-px bg-border" />
+            </div>
+            <div className="flex justify-between text-[9px] text-muted">
+              <span>Low (0-20)</span><span>Medium (20-40)</span><span>High (40-60)</span><span>Critical (60+)</span>
+            </div>
+
+            {/* Checks */}
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-muted mb-2 font-medium">Checks Ejecutados</p>
+              <div className="space-y-1.5 max-h-52 overflow-y-auto">
+                {(result.checks_performed as Array<{name: string; category: string; score: number; max_score: number; passed: boolean; detail: string}>)?.map((check, i) => (
+                  <div key={i} className="flex items-start gap-2 p-2 rounded bg-card-hover/30">
+                    {check.passed ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 mt-0.5 flex-shrink-0" /> : <XCircle className="w-3.5 h-3.5 text-red-400 mt-0.5 flex-shrink-0" />}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-medium text-foreground">{check.name}</span>
+                        <Badge variant="bg-card-hover text-muted border-border" className="text-[8px]">{check.category}</Badge>
+                      </div>
+                      <p className="text-[10px] text-muted mt-0.5">{check.detail}</p>
+                    </div>
+                    <span className="text-[10px] font-mono text-muted flex-shrink-0">{check.score}/{check.max_score}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Recommendations */}
+            {(result.recommendations as string[])?.length > 0 && (
+              <div className="p-3 rounded-lg bg-amber-500/5 border border-amber-500/10">
+                <p className="text-[10px] uppercase text-amber-400 font-medium mb-1">Recomendaciones</p>
+                {(result.recommendations as string[]).map((rec, i) => (
+                  <p key={i} className="text-xs text-foreground/70">• {rec}</p>
+                ))}
               </div>
             )}
           </div>
