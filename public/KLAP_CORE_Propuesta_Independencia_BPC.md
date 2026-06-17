@@ -47,7 +47,22 @@ Del análisis de tickets Jira activos:
 | Accesos bloqueados | 3 | No podemos leer nuestros propios datos | 5+ semanas |
 | Dependencia de releases | 2 | Esperando que BPC implemente cambio de Visa | Meses |
 
-### 2.3 Impacto financiero del status quo
+### 2.3 Incidente Crítico: Rechazo Masivo Mastercard (Mayo 2025)
+
+El 22 de mayo de 2025, un release de SmartVista (R25.40) incluyó un campo en desarrollo (PDS0216 SF5) en el archivo de clearing que KLAP envía a Mastercard. El campo no fue reconocido por la marca, provocando:
+
+| Impacto | Detalle |
+|---------|---------|
+| Transacciones rechazadas | **1.149.826** (616.061 del 21/05 + 533.765 del 22/05) |
+| Consecuencia financiera | Multa de Mastercard por volumen de rechazos en una semana |
+| Impacto en flujo de caja | Demora en el pago de la marca a cuenta de compensación de KLAP |
+| Tiempo de resolución | 18 horas (de 09:00 del 22/05 a 02:46 del 23/05) |
+| Equipo involucrado | 14 horas de war room con 5 equipos BPC + KLAP |
+| Causa raíz | BPC incluyó en producción un campo no certificado que estaba en desarrollo |
+
+**Este incidente no habría ocurrido con clearing propio.** KLAP CORE valida formato contra la especificación de cada marca antes de generar el archivo. Un campo no certificado nunca llegaría al outgoing.
+
+### 2.4 Impacto financiero del status quo
 
 | Concepto | Costo mensual (CLP) | Costo anual (CLP) |
 |----------|---------------------|-------------------|

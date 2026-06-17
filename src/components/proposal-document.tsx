@@ -97,7 +97,29 @@ export function ProposalDocument() {
             </tbody>
           </table>
 
-          <h3 className="text-base font-semibold text-[#1a1a2e] mb-3">2.2 Impacto financiero anual estimado</h3>
+          <h3 className="text-base font-semibold text-[#1a1a2e] mb-3 mt-8">2.2 Incidente Crítico: Rechazo Masivo Mastercard (Mayo 2025)</h3>
+          <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+            <p className="text-xs text-red-800 leading-relaxed mb-3">
+              El 22 de mayo de 2025, un release de SmartVista (R25.40) incluyó un campo en desarrollo (PDS0216 SF5) 
+              en el archivo de clearing enviado a Mastercard. El campo no fue reconocido por la marca, provocando un 
+              <strong> rechazo masivo de 1.149.826 transacciones</strong>.
+            </p>
+            <table className="w-full text-xs border-collapse">
+              <tbody>
+                <tr><td className="border border-red-200 px-3 py-1.5 font-medium bg-red-100/50">Transacciones rechazadas</td><td className="border border-red-200 px-3 py-1.5 font-bold text-red-700">1.149.826</td></tr>
+                <tr><td className="border border-red-200 px-3 py-1.5 font-medium">Multa</td><td className="border border-red-200 px-3 py-1.5">Mastercard multó a KLAP por volumen de rechazos</td></tr>
+                <tr><td className="border border-red-200 px-3 py-1.5 font-medium">Impacto flujo de caja</td><td className="border border-red-200 px-3 py-1.5">Demora en pago de marca a cta. compensación</td></tr>
+                <tr><td className="border border-red-200 px-3 py-1.5 font-medium">Tiempo resolución</td><td className="border border-red-200 px-3 py-1.5">18 horas de war room (5 equipos)</td></tr>
+                <tr><td className="border border-red-200 px-3 py-1.5 font-medium">Causa raíz</td><td className="border border-red-200 px-3 py-1.5">BPC incluyó campo no certificado en producción</td></tr>
+              </tbody>
+            </table>
+            <p className="text-xs text-red-800 font-medium mt-3">
+              Con clearing propio de KLAP, este incidente no habría ocurrido: el sistema valida formato contra la especificación 
+              de la marca antes de generar el archivo.
+            </p>
+          </div>
+
+          <h3 className="text-base font-semibold text-[#1a1a2e] mb-3">2.3 Impacto financiero anual estimado</h3>
           <table className="w-full text-xs border-collapse">
             <thead>
               <tr className="bg-gray-100">
