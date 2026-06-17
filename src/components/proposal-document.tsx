@@ -48,7 +48,7 @@ export function ProposalDocument() {
           <p className="text-lg text-gray-600">Plan Estratégico para Eliminar la Dependencia de BPC SmartVista</p>
           <div className="mt-6 flex items-center justify-center gap-8 text-sm text-gray-500">
             <span>Preparado por: Equipo de Tecnología KLAP</span>
-            <span>Fecha: Junio 2025</span>
+            <span>Fecha: Junio 2026</span>
             <span>Confidencial</span>
           </div>
         </header>
@@ -351,7 +351,7 @@ export function ProposalDocument() {
 
         {/* Footer */}
         <footer className="text-center text-xs text-gray-400 pt-6 border-t border-gray-200">
-          <p>KLAP CORE — Payment Operating System · Documento Confidencial · Junio 2025</p>
+          <p>KLAP CORE — Payment Operating System · Documento Confidencial · Junio 2026</p>
         </footer>
       </article>
     </>

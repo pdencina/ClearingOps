@@ -98,7 +98,7 @@ export function LoginScreen({ onLogin }: Props) {
           </div>
 
           {/* Footer */}
-          <p className="text-xs text-white/20">© 2025 KLAP · Todos los derechos reservados</p>
+          <p className="text-xs text-white/20">© 2026 KLAP · Todos los derechos reservados</p>
         </div>
       </div>
 

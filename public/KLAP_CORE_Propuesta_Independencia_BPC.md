@@ -3,7 +3,7 @@
 ## Plan Estratégico para Eliminar la Dependencia de BPC SmartVista
 
 **Preparado por:** Equipo de Tecnología KLAP  
-**Fecha:** Junio 2025  
+**Fecha:** Junio 2026  
 **Clasificación:** Confidencial  
 
 ---
@@ -250,4 +250,4 @@ La inversión de $147M se recupera en 3-5 meses y genera un ahorro sostenido de 
 
 ---
 
-*Documento generado por el equipo de tecnología KLAP — Junio 2025*
+*Documento generado por el equipo de tecnología KLAP — Junio 2026*
