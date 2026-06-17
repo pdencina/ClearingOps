@@ -67,7 +67,7 @@ export function LoginScreen({ onLogin }: Props) {
             <h2 className="text-4xl font-bold text-white leading-tight">
               El sistema de pagos<br />
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-accent to-purple-400">
-                que reemplaza a BPC
+                cloud-native de KLAP
               </span>
             </h2>
             <p className="text-base text-white/50 max-w-md leading-relaxed">
@@ -187,21 +187,6 @@ export function LoginScreen({ onLogin }: Props) {
               )}
             </button>
           </form>
-
-          {/* Demo credentials hint */}
-          <div className="p-4 rounded-xl bg-card border border-border">
-            <p className="text-[10px] uppercase tracking-wider text-muted font-medium mb-3">Credenciales Demo</p>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted">Admin:</span>
-                <span className="font-mono text-foreground">pablo.encina@klap.cl / klap2025</span>
-              </div>
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-muted">Viewer:</span>
-                <span className="font-mono text-foreground">demo@klap.cl / demo</span>
-              </div>
-            </div>
-          </div>
 
           {/* Security notice */}
           <p className="text-[10px] text-muted/50 text-center">
