@@ -25,6 +25,7 @@ import {
   UserPlus,
   FileBarChart,
   ScrollText,
+  AlertTriangle,
 } from 'lucide-react'
 
 const navItems = [
@@ -47,6 +48,7 @@ const navItems = [
   { href: '/switch', label: 'Switch ISO', icon: Radio },
   { href: '/apis', label: 'API Reference', icon: Code2 },
   { href: '/demo', label: 'Demo Flow', icon: Play },
+  { href: '/pain-points', label: 'Pain Points', icon: AlertTriangle },
   { href: '/independencia', label: 'Independencia BPC', icon: Unplug },
 ]
 
