@@ -26,6 +26,8 @@ import {
   FileBarChart,
   ScrollText,
   AlertTriangle,
+  FileSearch,
+  ShieldCheck,
 } from 'lucide-react'
 
 const navItems = [
@@ -40,6 +42,8 @@ const navItems = [
   { href: '/disputas', label: 'Disputas', icon: ShieldAlert },
   { href: '/monitor', label: 'Monitor', icon: Activity },
   { href: '/reportes', label: 'Reportes', icon: FileBarChart },
+  { href: '/releases', label: 'Release Analyzer', icon: FileSearch },
+  { href: '/releases/watchdog', label: 'Release Watchdog', icon: ShieldCheck },
   { href: '/audit', label: 'Audit Trail', icon: ScrollText },
   { href: '/health', label: 'Health & SLA', icon: HeartPulse },
   { href: '/jobs', label: 'Jobs', icon: Timer },

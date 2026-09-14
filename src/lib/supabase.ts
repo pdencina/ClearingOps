@@ -264,3 +264,6 @@ export async function getMerchants() {
 
   return data || []
 }
+
+// Nota: el Release Watchdog usa Neon (Postgres directo) en vez de Supabase.
+// Ver src/lib/watchdog-db.ts para esas funciones.
