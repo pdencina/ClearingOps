@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { PageHeader } from '@/components/ui/page-header'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
@@ -15,6 +15,9 @@ import {
   Loader2,
   Download,
   Trash2,
+  Paperclip,
+  FileText,
+  X,
 } from 'lucide-react'
 import {
   ACTION_LABELS,
@@ -216,6 +219,9 @@ export function ReleaseClient() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastRun, setLastRun] = useState<string | null>(null)
+  const [attachedFile, setAttachedFile] = useState<{ name: string; pages: number } | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   const analyzeText = useCallback((text: string, name: string) => {
     setLoading(true)
@@ -255,6 +261,48 @@ export function ReleaseClient() {
     setAnalysis(null)
     setError(null)
     setLastRun(null)
+    setAttachedFile(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }, [])
+
+  const handleFileSelected = useCallback(
+    async (file: File) => {
+      if (file.type !== 'application/pdf') {
+        setError('Solo se aceptan archivos PDF.')
+        return
+      }
+
+      setUploading(true)
+      setError(null)
+      try {
+        const formData = new FormData()
+        formData.append('file', file)
+
+        const res = await fetch('/api/release/extract-pdf', { method: 'POST', body: formData })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Error extrayendo el PDF')
+
+        // Intenta detectar el nombre del release del propio texto, ej: "26.60" o "R26.60"
+        const detected = data.text.match(/\bR?\d{2}\.\d{2}\b/)
+        const name = detected ? (detected[0].startsWith('R') ? detected[0] : `R${detected[0]}`) : file.name.replace(/\.pdf$/i, '')
+
+        setAttachedFile({ name: file.name, pages: data.total_pages })
+        setReleaseName(name)
+        setRawText(data.text)
+        analyzeText(data.text, name)
+      } catch (e) {
+        setError((e as Error).message)
+        setAttachedFile(null)
+      } finally {
+        setUploading(false)
+      }
+    },
+    [analyzeText]
+  )
+
+  const removeAttachedFile = useCallback(() => {
+    setAttachedFile(null)
+    if (fileInputRef.current) fileInputRef.current.value = ''
   }, [])
 
   return (
@@ -276,6 +324,56 @@ export function ReleaseClient() {
               placeholder="R26.60"
             />
           </div>
+          {/* Adjuntar PDF */}
+          <div>
+            <label className="text-sm text-muted mb-2 block">Release Note (PDF)</label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/pdf"
+              className="hidden"
+              onChange={e => {
+                const file = e.target.files?.[0]
+                if (file) handleFileSelected(file)
+              }}
+            />
+            {attachedFile ? (
+              <div className="flex items-center gap-3 rounded-lg border border-accent/30 bg-accent/5 px-4 py-3">
+                <FileText className="w-5 h-5 text-accent shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-foreground truncate">{attachedFile.name}</p>
+                  <p className="text-xs text-muted">{attachedFile.pages} páginas · texto extraído automáticamente</p>
+                </div>
+                <button
+                  onClick={removeAttachedFile}
+                  disabled={uploading}
+                  title="Quitar archivo"
+                  className="p-1.5 rounded-md hover:bg-red-500/10 text-muted hover:text-red-400 disabled:opacity-50 transition-colors shrink-0"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="w-full flex items-center justify-center gap-2 rounded-lg border border-dashed border-border px-4 py-6 text-sm text-muted hover:border-accent hover:text-foreground disabled:opacity-50 transition-colors"
+              >
+                {uploading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Extrayendo texto del PDF…
+                  </>
+                ) : (
+                  <>
+                    <Paperclip className="w-4 h-4" />
+                    Adjuntar Release Note en PDF
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+
           <div>
             <label className="text-sm text-muted mb-2 block">Texto del Release Note</label>
             <textarea
@@ -283,7 +381,7 @@ export function ReleaseClient() {
               onChange={e => setRawText(e.target.value)}
               rows={10}
               className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs font-mono text-foreground focus:border-accent outline-none resize-y"
-              placeholder="Pega aquí el texto del Release Note (formato B_PSGB-XXXXX — Título, Module, Type of Change, Summary, Complexity of Change)…"
+              placeholder="Pega aquí el texto del Release Note (formato B_PSGB-XXXXX — Título, Module, Type of Change, Summary, Complexity of Change)… o adjunta el PDF arriba."
             />
           </div>
 

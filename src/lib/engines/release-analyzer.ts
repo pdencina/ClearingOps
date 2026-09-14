@@ -331,7 +331,11 @@ function buildDetail(
 // También detecta la sección "Klap" para marcar is_klap_section.
 // ============================================================
 
-const TICKET_HEADER = /(B_?PSGB-\d+)\s*[—\-:]\s*(.+)/i
+// El separador entre el ID y el título varía según el generador del PDF:
+// guion largo "—", guion corto "-", dos puntos, o mojibake por encoding
+// (ej. "â" cuando un PDF sin fuente Unicode representa "—"). Aceptamos
+// cualquier secuencia corta de símbolos/no-letras entre el ID y el título.
+const TICKET_HEADER = /(B_?PSGB-\d+)\s*[^\w\s]{0,3}\s*(.+)/i
 
 export function parseReleaseNote(raw: string): ReleaseTicketInput[] {
   const lines = raw.split(/\r?\n/)
