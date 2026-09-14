@@ -5,6 +5,24 @@
 // ============================================================
 import { getNeonSql } from '@/lib/neon'
 
+// El driver de Neon devuelve objetos Date nativos para columnas
+// DATE/TIMESTAMPTZ (a diferencia de Supabase, que serializa a texto
+// ISO vía su API REST). El resto del código (engine, UI) espera
+// siempre string. Normalizamos aquí, en el borde con la base.
+function serializeDates<T>(row: T): T {
+  const out = { ...(row as object) } as Record<string, unknown>
+  for (const key in out) {
+    if (out[key] instanceof Date) {
+      out[key] = (out[key] as Date).toISOString()
+    }
+  }
+  return out as T
+}
+
+function serializeRows<T>(rows: unknown[]): T[] {
+  return rows.map(r => serializeDates(r as T))
+}
+
 export interface DbRelease {
   id: string
   name: string
@@ -66,7 +84,7 @@ export async function getActiveRelease(): Promise<{
     ORDER BY pap_date ASC
     LIMIT 1
   `
-  const release = (releases[0] as DbRelease) ?? null
+  const release = releases[0] ? serializeDates(releases[0] as DbRelease) : null
   if (!release) return { release: null, gates: [], alerts: [] }
 
   const [gates, alerts] = await Promise.all([
@@ -76,15 +94,15 @@ export async function getActiveRelease(): Promise<{
 
   return {
     release,
-    gates: gates as unknown as DbReleaseGate[],
-    alerts: alerts as unknown as DbReleaseAlert[],
+    gates: serializeRows<DbReleaseGate>(gates),
+    alerts: serializeRows<DbReleaseAlert>(alerts),
   }
 }
 
 export async function getReleaseById(releaseId: string) {
   const sql = getNeonSql()
   const releases = await sql`SELECT * FROM releases WHERE id = ${releaseId} LIMIT 1`
-  const release = (releases[0] as DbRelease) ?? null
+  const release = releases[0] ? serializeDates(releases[0] as DbRelease) : null
   if (!release) return { release: null, gates: [], alerts: [] }
 
   const [gates, alerts] = await Promise.all([
@@ -94,15 +112,15 @@ export async function getReleaseById(releaseId: string) {
 
   return {
     release,
-    gates: gates as unknown as DbReleaseGate[],
-    alerts: alerts as unknown as DbReleaseAlert[],
+    gates: serializeRows<DbReleaseGate>(gates),
+    alerts: serializeRows<DbReleaseAlert>(alerts),
   }
 }
 
 export async function listReleases(): Promise<DbRelease[]> {
   const sql = getNeonSql()
   const rows = await sql`SELECT * FROM releases ORDER BY pap_date DESC`
-  return rows as unknown as DbRelease[]
+  return serializeRows<DbRelease>(rows)
 }
 
 export async function createReleaseRecord(params: {
@@ -121,7 +139,7 @@ export async function createReleaseRecord(params: {
     VALUES (${params.name}, ${params.bpc_version}, ${params.pap_date}, ${params.release_note_received}, 'intake', ${params.total_tickets}, ${params.critical_tickets}, ${params.klap_dependent_tickets}, ${params.raw_release_note ?? null})
     RETURNING *
   `
-  return rows[0] as unknown as DbRelease
+  return serializeDates(rows[0] as DbRelease)
 }
 
 export async function insertReleaseGates(
@@ -166,7 +184,7 @@ export async function updateReleaseGate(
   const currentRows = await sql`
     SELECT * FROM release_gates WHERE release_id = ${releaseId} AND id = ${gateId} LIMIT 1
   `
-  const current = currentRows[0] as unknown as DbReleaseGate | undefined
+  const current = currentRows[0] ? serializeDates(currentRows[0] as DbReleaseGate) : undefined
   const isTerminal = update.status === 'passed' || update.status === 'failed'
 
   await sql`
