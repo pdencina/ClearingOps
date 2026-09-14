@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { MetricCard } from '@/components/ui/metric-card'
 import { cn } from '@/lib/utils'
+import Link from 'next/link'
 import {
   FileSearch,
   ShieldAlert,
@@ -18,6 +19,8 @@ import {
   Paperclip,
   FileText,
   X,
+  ShieldCheck,
+  ArrowRight,
 } from 'lucide-react'
 import {
   ACTION_LABELS,
@@ -223,9 +226,19 @@ export function ReleaseClient() {
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  // Crear proceso de control en el Release Watchdog (declarados antes de
+  // analyzeText porque este los referencia dentro de su closure)
+  const [papDate, setPapDate] = useState('')
+  const [receivedDate, setReceivedDate] = useState(() => new Date().toISOString().split('T')[0])
+  const [creatingWatchdog, setCreatingWatchdog] = useState(false)
+  const [watchdogError, setWatchdogError] = useState<string | null>(null)
+  const [watchdogCreated, setWatchdogCreated] = useState(false)
+
   const analyzeText = useCallback((text: string, name: string) => {
     setLoading(true)
     setError(null)
+    setWatchdogCreated(false)
+    setWatchdogError(null)
     // pequeño delay para que se vea el spinner y el feedback en la demo
     setTimeout(() => {
       try {
@@ -304,6 +317,42 @@ export function ReleaseClient() {
     setAttachedFile(null)
     if (fileInputRef.current) fileInputRef.current.value = ''
   }, [])
+
+  // ─── Crear proceso de control en el Release Watchdog ─────────
+  // Usa los datos ya calculados por el análisis (tickets críticos,
+  // dependencias KLAP) para armar el checklist de 13 gates en Neon.
+  const createWatchdogRelease = useCallback(async () => {
+    if (!analysis || !papDate) return
+    setCreatingWatchdog(true)
+    setWatchdogError(null)
+    try {
+      const klapDependent = analysis.tickets.filter(t => t.requires_klap_action).length
+      const res = await fetch('/api/release/watchdog', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create',
+          params: {
+            name: analysis.release_name,
+            bpc_version: analysis.release_name,
+            pap_date: papDate,
+            release_note_received: receivedDate,
+            total_tickets: analysis.total_tickets,
+            critical_tickets: analysis.by_risk.critical + analysis.by_risk.high,
+            klap_dependent_tickets: klapDependent,
+            raw_release_note: rawText,
+          },
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Error creando el release en el Watchdog')
+      setWatchdogCreated(true)
+    } catch (e) {
+      setWatchdogError((e as Error).message)
+    } finally {
+      setCreatingWatchdog(false)
+    }
+  }, [analysis, papDate, receivedDate, rawText])
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -461,6 +510,76 @@ export function ReleaseClient() {
               iconColor="bg-purple-500/10"
             />
           </div>
+
+          {/* Crear proceso de control en el Watchdog */}
+          <Card className="border-accent/30">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-lg bg-accent/10 flex items-center justify-center shrink-0">
+                <ShieldCheck className="w-5 h-5 text-accent" />
+              </div>
+              <div className="flex-1 min-w-0 space-y-3">
+                <div>
+                  <h3 className="text-sm font-medium text-foreground">Iniciar el proceso de control (Release Watchdog)</h3>
+                  <p className="text-xs text-muted mt-0.5">
+                    Crea el checklist de 13 gates para este release usando lo que ya detectó el análisis:{' '}
+                    {analysis.by_risk.critical + analysis.by_risk.high} tickets críticos/altos,{' '}
+                    {analysis.tickets.filter(t => t.requires_klap_action).length} con dependencia KLAP.
+                  </p>
+                </div>
+
+                {watchdogCreated ? (
+                  <div className="flex items-center gap-3">
+                    <span className="inline-flex items-center gap-1.5 text-sm text-emerald-400">
+                      <CheckCircle2 className="w-4 h-4" />
+                      Release creado en el Watchdog.
+                    </span>
+                    <Link
+                      href="/releases/watchdog"
+                      className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
+                    >
+                      Ver checklist
+                      <ArrowRight className="w-3.5 h-3.5" />
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div>
+                      <label className="text-xs text-muted mb-1 block">Fecha de recepción</label>
+                      <input
+                        type="date"
+                        value={receivedDate}
+                        onChange={e => setReceivedDate(e.target.value)}
+                        className="bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:border-accent outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-muted mb-1 block">Fecha programada de PaP</label>
+                      <input
+                        type="date"
+                        value={papDate}
+                        onChange={e => setPapDate(e.target.value)}
+                        className="bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:border-accent outline-none"
+                      />
+                    </div>
+                    <button
+                      onClick={createWatchdogRelease}
+                      disabled={creatingWatchdog || !papDate}
+                      className="inline-flex items-center gap-2 bg-accent text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-accent/90 disabled:opacity-50 transition-colors"
+                    >
+                      {creatingWatchdog ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+                      {creatingWatchdog ? 'Creando…' : 'Crear en Watchdog'}
+                    </button>
+                    {watchdogError && (
+                      <span className="inline-flex items-center gap-1.5 text-sm text-red-400">
+                        <AlertTriangle className="w-4 h-4" />
+                        {watchdogError}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </Card>
 
           {/* Resumen ejecutivo */}
           <Card>
