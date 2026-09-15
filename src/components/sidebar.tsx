@@ -3,57 +3,15 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import {
-  LayoutDashboard,
-  ArrowLeftRight,
-  Layers,
-  Wallet,
-  Scale,
-  Settings,
-  ShieldAlert,
-  Activity,
-  Zap,
-  Play,
-  Unplug,
-  Store,
-  Cpu,
-  Code2,
-  Workflow,
-  Radio,
-  HeartPulse,
-  Timer,
-  UserPlus,
-  FileBarChart,
-  ScrollText,
-  AlertTriangle,
-  FileSearch,
-  ShieldCheck,
-} from 'lucide-react'
+import { Zap, FileSearch, ShieldCheck } from 'lucide-react'
 
+// Sistema focalizado en el control de releases de BPC.
+// El resto de módulos de KLAP CORE (Dashboard, Transacciones, Clearing, etc.)
+// siguen existiendo en el código pero se ocultan de la navegación para
+// mantener el foco en Release Analyzer + Release Watchdog.
 const navItems = [
-  { href: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/transacciones', label: 'Transacciones', icon: ArrowLeftRight },
-  { href: '/comercios', label: 'Comercios', icon: Store },
-  { href: '/onboarding', label: 'Onboarding', icon: UserPlus },
-  { href: '/clearing', label: 'Clearing', icon: Layers },
-  { href: '/liquidaciones', label: 'Liquidaciones', icon: Wallet },
-  { href: '/conciliacion', label: 'Conciliación', icon: Scale },
-  { href: '/reglas', label: 'Reglas & Fees', icon: Settings },
-  { href: '/disputas', label: 'Disputas', icon: ShieldAlert },
-  { href: '/monitor', label: 'Monitor', icon: Activity },
-  { href: '/reportes', label: 'Reportes', icon: FileBarChart },
   { href: '/releases', label: 'Release Analyzer', icon: FileSearch },
   { href: '/releases/watchdog', label: 'Release Watchdog', icon: ShieldCheck },
-  { href: '/audit', label: 'Audit Trail', icon: ScrollText },
-  { href: '/health', label: 'Health & SLA', icon: HeartPulse },
-  { href: '/jobs', label: 'Jobs', icon: Timer },
-  { href: '/engine', label: 'KLAP Engine', icon: Cpu },
-  { href: '/pipeline', label: 'Pipeline', icon: Workflow },
-  { href: '/switch', label: 'Switch ISO', icon: Radio },
-  { href: '/apis', label: 'API Reference', icon: Code2 },
-  { href: '/demo', label: 'Demo Flow', icon: Play },
-  { href: '/pain-points', label: 'Pain Points', icon: AlertTriangle },
-  { href: '/independencia', label: 'Independencia BPC', icon: Unplug },
 ]
 
 export function Sidebar() {
@@ -69,7 +27,7 @@ export function Sidebar() {
           </div>
           <div>
             <h1 className="text-lg font-bold text-foreground tracking-tight">KLAP CORE</h1>
-            <p className="text-[10px] text-muted uppercase tracking-widest">Payment OS</p>
+            <p className="text-[10px] text-muted uppercase tracking-widest">Release Control</p>
           </div>
         </div>
       </div>
