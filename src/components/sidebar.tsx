@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { Zap, FileSearch, ShieldCheck } from 'lucide-react'
+import { Zap, FileSearch, ShieldCheck, GitBranch } from 'lucide-react'
 
 // Sistema focalizado en el control de releases de BPC.
 // El resto de módulos de KLAP CORE (Dashboard, Transacciones, Clearing, etc.)
@@ -12,6 +12,7 @@ import { Zap, FileSearch, ShieldCheck } from 'lucide-react'
 const navItems = [
   { href: '/releases', label: 'Release Analyzer', icon: FileSearch },
   { href: '/releases/watchdog', label: 'Release Watchdog', icon: ShieldCheck },
+  { href: '/releases/bpc-tickets', label: 'Tickets BPC', icon: GitBranch },
 ]
 
 export function Sidebar() {

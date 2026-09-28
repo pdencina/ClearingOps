@@ -3,25 +3,7 @@
 // Reemplaza el acceso vía Supabase para este módulo específico.
 // Usa el driver serverless de Neon con SQL parametrizado.
 // ============================================================
-import { getNeonSql } from '@/lib/neon'
-
-// El driver de Neon devuelve objetos Date nativos para columnas
-// DATE/TIMESTAMPTZ (a diferencia de Supabase, que serializa a texto
-// ISO vía su API REST). El resto del código (engine, UI) espera
-// siempre string. Normalizamos aquí, en el borde con la base.
-function serializeDates<T>(row: T): T {
-  const out = { ...(row as object) } as Record<string, unknown>
-  for (const key in out) {
-    if (out[key] instanceof Date) {
-      out[key] = (out[key] as Date).toISOString()
-    }
-  }
-  return out as T
-}
-
-function serializeRows<T>(rows: unknown[]): T[] {
-  return rows.map(r => serializeDates(r as T))
-}
+import { getNeonSql, serializeDates, serializeRows } from '@/lib/neon'
 
 export interface DbRelease {
   id: string

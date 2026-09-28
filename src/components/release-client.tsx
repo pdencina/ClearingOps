@@ -21,6 +21,7 @@ import {
   X,
   ShieldCheck,
   ArrowRight,
+  GitBranch,
 } from 'lucide-react'
 import {
   ACTION_LABELS,
@@ -32,6 +33,7 @@ import {
   type ReleaseAction,
   type RiskLevel,
 } from '@/lib/engines/release-analyzer'
+import { COVERAGE_STATUS_LABELS, type CoverageResult, type CoverageStatus } from '@/lib/engines/bpc-coverage'
 
 const RISK_BADGE: Record<RiskLevel, string> = {
   critical: 'bg-red-500/10 text-red-400 border-red-500/20',
@@ -234,11 +236,41 @@ export function ReleaseClient() {
   const [watchdogError, setWatchdogError] = useState<string | null>(null)
   const [watchdogCreated, setWatchdogCreated] = useState(false)
 
+  // Seguimiento BPC: cobertura de tickets derivados vs este release
+  // (declarados antes de analyzeText porque este los referencia en su closure)
+  const [coverage, setCoverage] = useState<CoverageResult | null>(null)
+  const [coverageLoading, setCoverageLoading] = useState(false)
+  const [coverageError, setCoverageError] = useState<string | null>(null)
+
+  const checkBpcCoverage = useCallback(async (name: string, tickets: AnalyzedTicket[]) => {
+    setCoverageLoading(true)
+    setCoverageError(null)
+    try {
+      const res = await fetch('/api/bpc-tickets/coverage', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ release_name: name, release_tickets: tickets }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Error calculando cobertura BPC')
+      setCoverage(data)
+    } catch (e) {
+      // No bloquea el análisis principal: si no hay tickets BPC cargados
+      // o Neon no está disponible, solo se omite esta sección.
+      setCoverageError((e as Error).message)
+      setCoverage(null)
+    } finally {
+      setCoverageLoading(false)
+    }
+  }, [])
+
   const analyzeText = useCallback((text: string, name: string) => {
     setLoading(true)
     setError(null)
     setWatchdogCreated(false)
     setWatchdogError(null)
+    setCoverage(null)
+    setCoverageError(null)
     // pequeño delay para que se vea el spinner y el feedback en la demo
     setTimeout(() => {
       try {
@@ -248,8 +280,12 @@ export function ReleaseClient() {
         if (tickets.length === 0) {
           throw new Error('No se detectaron tickets. Verifica el formato (B_PSGB-XXXXX — Título).')
         }
-        setAnalysis(analyzeRelease(name, tickets))
+        const result = analyzeRelease(name, tickets)
+        setAnalysis(result)
         setLastRun(new Date().toLocaleTimeString('es-CL'))
+        // Parte del proceso: cada vez que llega un release, se cruza
+        // automáticamente contra el backlog de tickets derivados a BPC.
+        checkBpcCoverage(name, result.tickets)
       } catch (e) {
         setError((e as Error).message)
         setAnalysis(null)
@@ -257,7 +293,7 @@ export function ReleaseClient() {
         setLoading(false)
       }
     }, 250)
-  }, [])
+  }, [checkBpcCoverage])
 
   const runAnalysis = useCallback(() => {
     analyzeText(rawText, releaseName)
@@ -581,6 +617,9 @@ export function ReleaseClient() {
             </div>
           </Card>
 
+          {/* Seguimiento BPC: cobertura de tickets derivados */}
+          <BpcCoverageSection loading={coverageLoading} error={coverageError} coverage={coverage} />
+
           {/* Resumen ejecutivo */}
           <Card>
             <h3 className="text-sm font-medium text-foreground mb-3">Resumen ejecutivo</h3>
@@ -612,6 +651,122 @@ const RISK_ORDER: Record<RiskLevel, number> = { critical: 0, high: 1, medium: 2,
 function sortByRisk(tickets: AnalyzedTicket[]): AnalyzedTicket[] {
   return [...tickets].sort(
     (a, b) => RISK_ORDER[a.risk] - RISK_ORDER[b.risk] || b.score - a.score
+  )
+}
+
+const COVERAGE_BADGE: Record<CoverageStatus, string> = {
+  covered: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+  likely_covered: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+  not_found: 'bg-red-500/10 text-red-400 border-red-500/20',
+}
+
+function BpcCoverageSection({
+  loading,
+  error,
+  coverage,
+}: {
+  loading: boolean
+  error: string | null
+  coverage: CoverageResult | null
+}) {
+  return (
+    <Card className="border-blue-500/30">
+      <div className="flex items-start gap-3">
+        <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0">
+          <GitBranch className="w-5 h-5 text-blue-400" />
+        </div>
+        <div className="flex-1 min-w-0 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-medium text-foreground">Seguimiento BPC — cobertura de tickets derivados</h3>
+              <p className="text-xs text-muted mt-0.5">
+                Cruza automáticamente el backlog de tickets KLAP/ESV2 derivados a BPC (Jira) contra este release.
+              </p>
+            </div>
+            <Link
+              href="/releases/bpc-tickets"
+              className="inline-flex items-center gap-1.5 text-xs text-accent hover:underline shrink-0"
+            >
+              Gestionar tickets
+              <ArrowRight className="w-3 h-3" />
+            </Link>
+          </div>
+
+          {loading && (
+            <div className="flex items-center gap-2 text-sm text-muted">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Cruzando contra el backlog de Jira…
+            </div>
+          )}
+
+          {!loading && error && (
+            <div className="flex items-start gap-2 text-sm text-yellow-400">
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>
+                No se pudo calcular la cobertura ({error}). Esto no afecta la clasificación de riesgo de arriba.
+              </span>
+            </div>
+          )}
+
+          {!loading && !error && coverage && (
+            <>
+              {coverage.total_pending_tickets === 0 ? (
+                <p className="text-sm text-muted">
+                  No hay tickets pendientes derivados a BPC registrados. Cuando deriven uno nuevo, agrégalo en{' '}
+                  <Link href="/releases/bpc-tickets" className="text-accent hover:underline">
+                    Gestionar tickets
+                  </Link>
+                  .
+                </p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 p-2.5 text-center">
+                      <p className="text-lg font-bold text-emerald-400">{coverage.covered}</p>
+                      <p className="text-[10px] text-muted uppercase">Cubiertos</p>
+                    </div>
+                    <div className="rounded-lg bg-yellow-500/5 border border-yellow-500/20 p-2.5 text-center">
+                      <p className="text-lg font-bold text-yellow-400">{coverage.likely_covered}</p>
+                      <p className="text-[10px] text-muted uppercase">A revisar</p>
+                    </div>
+                    <div className="rounded-lg bg-red-500/5 border border-red-500/20 p-2.5 text-center">
+                      <p className="text-lg font-bold text-red-400">{coverage.not_found}</p>
+                      <p className="text-[10px] text-muted uppercase">Siguen pendientes</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-border overflow-hidden">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-border bg-card">
+                          {['Ticket KLAP', 'Resumen', 'Estado', 'Coincidencia en el release'].map(h => (
+                            <th key={h} className="px-3 py-2 text-left text-[10px] font-medium text-muted uppercase tracking-wider">
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {coverage.matches.map(m => (
+                          <tr key={m.bpc_ticket_id} className="bg-card/50">
+                            <td className="px-3 py-2 text-xs font-mono text-foreground whitespace-nowrap">{m.jira_key}</td>
+                            <td className="px-3 py-2 text-xs text-foreground max-w-[220px] truncate">{m.summary}</td>
+                            <td className="px-3 py-2">
+                              <Badge className={COVERAGE_BADGE[m.status]}>{COVERAGE_STATUS_LABELS[m.status]}</Badge>
+                            </td>
+                            <td className="px-3 py-2 text-xs text-muted max-w-[260px]">{m.reason}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </Card>
   )
 }
 
