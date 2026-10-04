@@ -39,7 +39,8 @@ export async function POST(req: Request) {
     const action: string = body.action
 
     switch (action) {
-      // Crea un release REAL en Neon con su checklist de 13 gates.
+      // Crea un release REAL en Neon con su checklist de gates
+      // (13 base + G14/G15 siempre + G16 si corresponde outgoing).
       case 'create': {
         const p = body.params ?? {}
         if (!p.name || !p.pap_date || !p.release_note_received) {
@@ -60,7 +61,7 @@ export async function POST(req: Request) {
           raw_release_note: p.raw_release_note,
         })
 
-        const gateRows = generateGateRows(p.pap_date)
+        const gateRows = generateGateRows(p.pap_date, Boolean(p.include_outgoing_validation))
         await insertReleaseGates(dbRelease.id, gateRows)
 
         // Alerta inicial si el Release Note llegó con poco margen (< 10 días hábiles)

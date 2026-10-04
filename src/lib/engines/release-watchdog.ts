@@ -85,6 +85,7 @@ interface GateTemplate {
   is_blocking: boolean
   owner: string
   days_before_pap: number  // Deadline = pap_date - N días hábiles
+  conditional?: boolean    // Solo se incluye si el caller lo activa explícitamente (ver generateGateRows)
 }
 
 const GATE_TEMPLATES: GateTemplate[] = [
@@ -154,6 +155,24 @@ const GATE_TEMPLATES: GateTemplate[] = [
     owner: 'Release Management KLAP',
     days_before_pap: 4,
   },
+  {
+    id: 'G14',
+    name: 'Reunión técnica conjunta KLAP-BPC',
+    description: 'Se realizó la reunión con los equipos técnicos de KLAP y BPC para revisar el release. Evidencia obligatoria: acta/minuta con fecha y asistentes.',
+    phase: 'validation',
+    is_blocking: true,
+    owner: 'Release Management KLAP / BPC',
+    days_before_pap: 6,
+  },
+  {
+    id: 'G15',
+    name: 'Certificación BPC completada',
+    description: 'BPC certificó el release en su propio ambiente (certificación obligatoria del lado BPC, acordado con Alejandro San Martín — Service Delivery Manager BPC). Evidencia: reporte o constancia de certificación.',
+    phase: 'validation',
+    is_blocking: true,
+    owner: 'BPC',
+    days_before_pap: 3,
+  },
 
   // ── PRE-PAP (confirmación final) ─────────────────────────
   {
@@ -211,6 +230,17 @@ const GATE_TEMPLATES: GateTemplate[] = [
     is_blocking: true,
     owner: 'Operaciones / BPC',
     days_before_pap: -1,
+  },
+  {
+    id: 'G16',
+    name: 'Validación de archivos Outgoing post-PaP',
+    description:
+      'Se generaron y validaron archivos Outgoing hacia las marcas con un lote reducido de trx tras el PaP. Obligatorio en releases de marca (Visa/Mastercard, 2x año) o cuando el release tiene riesgo de no generar archivos a las marcas (clearing/SVXP). Acordado con BPC (Alejandro San Martín).',
+    phase: 'post_pap',
+    is_blocking: true,
+    owner: 'BPC / Operaciones Adquirentes',
+    days_before_pap: -1,
+    conditional: true,
   },
 ]
 
@@ -275,10 +305,16 @@ export interface NewGateRow {
 /**
  * Genera las filas de gates (checklist completo) para insertar
  * en la tabla release_gates al crear un release nuevo.
+ *
+ * `includeOutgoingValidation` activa G16 (validación de archivos
+ * Outgoing post-PaP): obligatorio en releases de marca o cuando el
+ * release toca clearing/SVXP (riesgo de no generar archivos a las
+ * marcas) — acordado con BPC. Se omite en releases sin ese riesgo
+ * para no sumar carga operativa innecesaria.
  */
-export function generateGateRows(papDateISO: string): NewGateRow[] {
+export function generateGateRows(papDateISO: string, includeOutgoingValidation = false): NewGateRow[] {
   const papDate = new Date(papDateISO)
-  return GATE_TEMPLATES.map(tpl => ({
+  return GATE_TEMPLATES.filter(tpl => !tpl.conditional || includeOutgoingValidation).map(tpl => ({
     id: tpl.id,
     name: tpl.name,
     description: tpl.description,
@@ -349,20 +385,23 @@ export function createRelease(params: {
   total_tickets?: number
   critical_tickets?: number
   klap_dependent_tickets?: number
+  include_outgoing_validation?: boolean
 }): WatchdogRelease {
   const now = new Date().toISOString()
   const papDate = new Date(params.pap_date)
 
-  const gates: ReleaseGate[] = GATE_TEMPLATES.map(tpl => ({
-    id: tpl.id,
-    name: tpl.name,
-    description: tpl.description,
-    phase: tpl.phase,
-    is_blocking: tpl.is_blocking,
-    status: 'pending',
-    owner: tpl.owner,
-    deadline: addBusinessDays(papDate, -tpl.days_before_pap).toISOString().split('T')[0],
-  }))
+  const gates: ReleaseGate[] = GATE_TEMPLATES
+    .filter(tpl => !tpl.conditional || params.include_outgoing_validation)
+    .map(tpl => ({
+      id: tpl.id,
+      name: tpl.name,
+      description: tpl.description,
+      phase: tpl.phase,
+      is_blocking: tpl.is_blocking,
+      status: 'pending',
+      owner: tpl.owner,
+      deadline: addBusinessDays(papDate, -tpl.days_before_pap).toISOString().split('T')[0],
+    }))
 
   const alerts = generateInitialAlerts(params.name, params.pap_date, params.release_note_received)
 
@@ -484,6 +523,7 @@ export function createDemoRelease(): WatchdogRelease {
     total_tickets: 20,
     critical_tickets: 5,
     klap_dependent_tickets: 7,
+    include_outgoing_validation: true, // demo: release toca clearing/SVXP
   })
 
   // Simular progreso parcial para la demo:
@@ -495,6 +535,9 @@ export function createDemoRelease(): WatchdogRelease {
     if (g.id === 'G04') return { ...g, status: 'in_progress' as GateStatus, notes: 'QA ejecutando regresión en T6' }
     if (g.id === 'G05') return { ...g, status: 'in_progress' as GateStatus, notes: 'PO revisando tickets de clearing' }
     if (g.id === 'G07') return { ...g, status: 'failed' as GateStatus, notes: '⚠️ KLAP-2024: cambio requerido por CLAP no confirmado. Ticket atrasado 4 días.' }
+    if (g.id === 'G14') return { ...g, status: 'pending' as GateStatus, notes: 'Agendar con Alejandro San Martín (BPC) y equipo técnico KLAP.' }
+    if (g.id === 'G15') return { ...g, status: 'pending' as GateStatus, notes: 'Certificación BPC pendiente de confirmación.' }
+    if (g.id === 'G16') return { ...g, status: 'pending' as GateStatus, notes: 'Release toca clearing/SVXP — outgoing con lote reducido post-PaP.' }
     return g
   })
 

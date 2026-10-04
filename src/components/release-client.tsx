@@ -233,6 +233,13 @@ export function ReleaseClient() {
   const [papDate, setPapDate] = useState('')
   const [receivedDate, setReceivedDate] = useState(() => new Date().toISOString().split('T')[0])
   const [creatingWatchdog, setCreatingWatchdog] = useState(false)
+  // Validación de archivos Outgoing post-PaP (acordado con BPC / Alejandro
+  // San Martín): obligatoria en releases de marca o cuando el release toca
+  // clearing/SVXP. Se sugiere automáticamente según lo que detectó el
+  // análisis, pero queda editable (declarados aquí porque analyzeText los
+  // referencia en su closure).
+  const [includeOutgoing, setIncludeOutgoing] = useState(false)
+  const [outgoingTouched, setOutgoingTouched] = useState(false)
   const [watchdogError, setWatchdogError] = useState<string | null>(null)
   const [watchdogCreated, setWatchdogCreated] = useState(false)
 
@@ -283,6 +290,12 @@ export function ReleaseClient() {
         const result = analyzeRelease(name, tickets)
         setAnalysis(result)
         setLastRun(new Date().toLocaleTimeString('es-CL'))
+        // Sugerencia automática del gate de outgoing (G16): se activa si el
+        // release toca clearing/SVXP. El usuario puede corregirlo a mano
+        // (ej. release de marca sin tickets de clearing explícitos).
+        if (!outgoingTouched) {
+          setIncludeOutgoing(result.tickets.some(t => t.touches_clearing))
+        }
         // Parte del proceso: cada vez que llega un release, se cruza
         // automáticamente contra el backlog de tickets derivados a BPC.
         checkBpcCoverage(name, result.tickets)
@@ -293,7 +306,7 @@ export function ReleaseClient() {
         setLoading(false)
       }
     }, 250)
-  }, [checkBpcCoverage])
+  }, [checkBpcCoverage, outgoingTouched])
 
   const runAnalysis = useCallback(() => {
     analyzeText(rawText, releaseName)
@@ -356,7 +369,7 @@ export function ReleaseClient() {
 
   // ─── Crear proceso de control en el Release Watchdog ─────────
   // Usa los datos ya calculados por el análisis (tickets críticos,
-  // dependencias KLAP) para armar el checklist de 13 gates en Neon.
+  // dependencias KLAP) para armar el checklist de gates en Neon.
   const createWatchdogRelease = useCallback(async () => {
     if (!analysis || !papDate) return
     setCreatingWatchdog(true)
@@ -377,6 +390,7 @@ export function ReleaseClient() {
             critical_tickets: analysis.by_risk.critical + analysis.by_risk.high,
             klap_dependent_tickets: klapDependent,
             raw_release_note: rawText,
+            include_outgoing_validation: includeOutgoing,
           },
         }),
       })
@@ -388,7 +402,7 @@ export function ReleaseClient() {
     } finally {
       setCreatingWatchdog(false)
     }
-  }, [analysis, papDate, receivedDate, rawText])
+  }, [analysis, papDate, receivedDate, rawText, includeOutgoing])
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -557,9 +571,10 @@ export function ReleaseClient() {
                 <div>
                   <h3 className="text-sm font-medium text-foreground">Iniciar el proceso de control (Release Watchdog)</h3>
                   <p className="text-xs text-muted mt-0.5">
-                    Crea el checklist de 13 gates para este release usando lo que ya detectó el análisis:{' '}
+                    Crea el checklist de gates para este release usando lo que ya detectó el análisis:{' '}
                     {analysis.by_risk.critical + analysis.by_risk.high} tickets críticos/altos,{' '}
                     {analysis.tickets.filter(t => t.requires_klap_action).length} con dependencia KLAP.
+                    Incluye reunión técnica conjunta y certificación BPC (acordado con Alejandro San Martín).
                   </p>
                 </div>
 
@@ -578,39 +593,60 @@ export function ReleaseClient() {
                     </Link>
                   </div>
                 ) : (
-                  <div className="flex flex-wrap items-end gap-3">
-                    <div>
-                      <label className="text-xs text-muted mb-1 block">Fecha de recepción</label>
-                      <input
-                        type="date"
-                        value={receivedDate}
-                        onChange={e => setReceivedDate(e.target.value)}
-                        className="bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:border-accent outline-none"
-                      />
+                  <div className="space-y-3">
+                    <div className="flex flex-wrap items-end gap-3">
+                      <div>
+                        <label className="text-xs text-muted mb-1 block">Fecha de recepción</label>
+                        <input
+                          type="date"
+                          value={receivedDate}
+                          onChange={e => setReceivedDate(e.target.value)}
+                          className="bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:border-accent outline-none"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-xs text-muted mb-1 block">Fecha programada de PaP</label>
+                        <input
+                          type="date"
+                          value={papDate}
+                          onChange={e => setPapDate(e.target.value)}
+                          className="bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:border-accent outline-none"
+                        />
+                      </div>
+                      <button
+                        onClick={createWatchdogRelease}
+                        disabled={creatingWatchdog || !papDate}
+                        className="inline-flex items-center gap-2 bg-accent text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-accent/90 disabled:opacity-50 transition-colors"
+                      >
+                        {creatingWatchdog ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+                        {creatingWatchdog ? 'Creando…' : 'Crear en Watchdog'}
+                      </button>
+                      {watchdogError && (
+                        <span className="inline-flex items-center gap-1.5 text-sm text-red-400">
+                          <AlertTriangle className="w-4 h-4" />
+                          {watchdogError}
+                        </span>
+                      )}
                     </div>
-                    <div>
-                      <label className="text-xs text-muted mb-1 block">Fecha programada de PaP</label>
+
+                    <label className="flex items-start gap-2 text-xs text-muted cursor-pointer">
                       <input
-                        type="date"
-                        value={papDate}
-                        onChange={e => setPapDate(e.target.value)}
-                        className="bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:border-accent outline-none"
+                        type="checkbox"
+                        checked={includeOutgoing}
+                        onChange={e => {
+                          setIncludeOutgoing(e.target.checked)
+                          setOutgoingTouched(true)
+                        }}
+                        className="mt-0.5 accent-accent"
                       />
-                    </div>
-                    <button
-                      onClick={createWatchdogRelease}
-                      disabled={creatingWatchdog || !papDate}
-                      className="inline-flex items-center gap-2 bg-accent text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-accent/90 disabled:opacity-50 transition-colors"
-                    >
-                      {creatingWatchdog ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
-                      {creatingWatchdog ? 'Creando…' : 'Crear en Watchdog'}
-                    </button>
-                    {watchdogError && (
-                      <span className="inline-flex items-center gap-1.5 text-sm text-red-400">
-                        <AlertTriangle className="w-4 h-4" />
-                        {watchdogError}
+                      <span>
+                        Validar archivos Outgoing post-PaP con lote reducido (obligatorio en releases de marca o cuando hay
+                        riesgo de no generar archivos a las marcas — acordado con BPC).
+                        {analysis.tickets.some(t => t.touches_clearing) && !outgoingTouched && (
+                          <span className="text-yellow-400"> Sugerido automáticamente: este release toca clearing/SVXP.</span>
+                        )}
                       </span>
-                    )}
+                    </label>
                   </div>
                 )}
               </div>
