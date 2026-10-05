@@ -14,7 +14,6 @@ import {
   AlertTriangle,
   Layers,
   Loader2,
-  Download,
   Trash2,
   Paperclip,
   FileText,
@@ -50,177 +49,10 @@ const ACTION_BADGE: Record<ReleaseAction, string> = {
   informational: 'bg-gray-500/10 text-gray-500 border-gray-500/20',
 }
 
-const SAMPLE_R2660 = `SmartVista Radar Payments 26.60 — Release Notes (14 August 2026)
-
-2.13. Klap
-B_PSGB-94498 — American Express: merchant installment ARN in position 12 must be 8
-Module
-SVBO
-Type of Change
-Bug fix
-Complexity of Change
-High
-B_PSGB-106280 — Visa ARN refund must be different from the purchase
-Module
-SVBO
-Type of Change
-Bug fix
-Complexity of Change
-High
-B_PSGB-108189 — American Express transactions are not updated after processing a DAF file
-Module
-SVBO
-Type of Change
-Bug fix
-Complexity of Change
-Average
-B_PSGB-109771 — Monto total cuotas amplified by 100
-Module
-SVBO
-Type of Change
-Bug fix
-Summary
-The monto_total_cuotas field in the Visa outgoing files is now displayed correctly according to the Visa specification.
-Complexity of Change
-High
-B_PSGB-110131 — Timeout for getting the transaction account currency
-Module
-SVBO
-Type of Change
-Bug fix
-Complexity of Change
-High
-2.2.
-B_PSGB-97969 — Card issuing, phase 2: matching the L file from Worldline
-Module
-SVBO
-Type of Change
-Enhancement
-Summary
-SVBO can now import L files from Worldline and export the cleared transactions to Temenos in the SVXP clearing files.
-Complexity of Change
-High
-2.5.
-B_PSGB-108595 — Mastercard outgoing clearing messages for installments
-Module
-SVBO
-Type of Change
-Bug fix
-Complexity of Change
-High
-2.9.
-B_PSGB-109528 — Rejections with action code 909 (original SVFE code 96)
-Module
-SVFE
-Type of Change
-Bug fix
-Complexity of Change
-High
-2.22.
-B_PSGB-111987 — Update the Clearing web service after XSD change
-Module
-APIGate
-Type of Change
-Enhancement
-Summary
-The types of the status and status_reason tags in the operation_result complex tag have been modified.
-Complexity of Change
-High
-2.24.
-B_PSGB-107436 — Transactions are not available in the clearing file from 4 June 2026
-Module
-SVBO
-Type of Change
-Bug fix
-Summary
-Processing of Mastercard incoming clearing files has been modified so acquiring institutions and reversals are matched correctly.
-Complexity of Change
-High
-2.20.
-B_PSGB-107639 — Process 10001211 — Visa BaseII incoming clearing has not finished
-Module
-SVBO
-Type of Change
-Bug fix
-Complexity of Change
-High
-B_PSGB-108732 — SVFE Mastercard mandatory changes 26.Q3
-Module
-SVFE
-Type of Change
-Enhancement
-Complexity of Change
-High
-B_PSGB-109363 — Incoming CVV2 from Visa are not sent to GIM
-Module
-SVFE
-Type of Change
-Bug fix
-Complexity of Change
-High
-2.10.
-B_PSGB-110359 — PayFac Settlement Report: production report issues
-Module
-SVBO
-Type of Change
-Bug fix
-Summary
-Failed settlements are not now included in the Total Net amount in the Settlement Report.
-Complexity of Change
-High
-2.3.
-B_PSGB-107373 — ANZ Reconciliation and Summary report
-Module
-SVBO
-Type of Change
-Enhancement
-Summary
-The ANZ Reconciliation and Summary report is generated daily and sent to the ANZ network.
-Complexity of Change
-Average
-2.17.
-B_PSGB-107179 — Visa fee updates
-Module
-SVBO
-Type of Change
-Enhancement
-Complexity of Change
-High
-2.3.
-B_PSGB-105737 — Slow response on card features in the mobile application
-Module
-SVBO
-Type of Change
-Bug fix
-Complexity of Change
-High
-2.20.
-B_PSGB-110937 — The Terminal ID search field is limited to 9 characters
-Module
-SVFE
-Type of Change
-Enhancement
-Complexity of Change
-Average
-2.21.
-B_PSGB-104932 — Identity document update behavior
-Module
-Customer Service Portal
-Type of Change
-Bug fix
-Complexity of Change
-High`
-
-// Análisis inicial del R26.60 pre-computado para que la demo arranque
-// con la tabla ya visible, sin depender de red ni de un clic.
-function initialAnalysis(): ReleaseAnalysis {
-  return analyzeRelease('R26.60', parseReleaseNote(SAMPLE_R2660))
-}
-
 export function ReleaseClient() {
-  const [releaseName, setReleaseName] = useState('R26.60')
-  const [rawText, setRawText] = useState(SAMPLE_R2660)
-  const [analysis, setAnalysis] = useState<ReleaseAnalysis | null>(initialAnalysis)
+  const [releaseName, setReleaseName] = useState('')
+  const [rawText, setRawText] = useState('')
+  const [analysis, setAnalysis] = useState<ReleaseAnalysis | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastRun, setLastRun] = useState<string | null>(null)
@@ -242,6 +74,7 @@ export function ReleaseClient() {
   const [outgoingTouched, setOutgoingTouched] = useState(false)
   const [watchdogError, setWatchdogError] = useState<string | null>(null)
   const [watchdogCreated, setWatchdogCreated] = useState(false)
+  const [watchdogReleaseId, setWatchdogReleaseId] = useState<string | null>(null)
 
   // Seguimiento BPC: cobertura de tickets derivados vs este release
   // (declarados antes de analyzeText porque este los referencia en su closure)
@@ -278,11 +111,10 @@ export function ReleaseClient() {
     setWatchdogError(null)
     setCoverage(null)
     setCoverageError(null)
-    // pequeño delay para que se vea el spinner y el feedback en la demo
+    // pequeño delay para que el spinner sea visible incluso cuando el
+    // análisis (que corre en el cliente) termina casi instantáneo
     setTimeout(() => {
       try {
-        // El análisis corre en el cliente con el mismo motor del backend,
-        // así la demo es instantánea y no depende de la red.
         const tickets = parseReleaseNote(text)
         if (tickets.length === 0) {
           throw new Error('No se detectaron tickets. Verifica el formato (B_PSGB-XXXXX — Título).')
@@ -311,12 +143,6 @@ export function ReleaseClient() {
   const runAnalysis = useCallback(() => {
     analyzeText(rawText, releaseName)
   }, [analyzeText, rawText, releaseName])
-
-  const loadSample = useCallback(() => {
-    setReleaseName('R26.60')
-    setRawText(SAMPLE_R2660)
-    analyzeText(SAMPLE_R2660, 'R26.60')
-  }, [analyzeText])
 
   const clearInput = useCallback(() => {
     setRawText('')
@@ -397,6 +223,7 @@ export function ReleaseClient() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Error creando el release en el Watchdog')
       setWatchdogCreated(true)
+      setWatchdogReleaseId(data.release?.id ?? null)
     } catch (e) {
       setWatchdogError((e as Error).message)
     } finally {
@@ -496,15 +323,6 @@ export function ReleaseClient() {
             </button>
 
             <button
-              onClick={loadSample}
-              disabled={loading}
-              className="inline-flex items-center gap-2 border border-border text-foreground text-sm font-medium px-4 py-2 rounded-lg hover:bg-card-hover disabled:opacity-50 transition-colors"
-            >
-              <Download className="w-4 h-4" />
-              Cargar ejemplo R26.60
-            </button>
-
-            <button
               onClick={clearInput}
               disabled={loading || !rawText.trim()}
               className="inline-flex items-center gap-2 border border-border text-muted text-sm font-medium px-4 py-2 rounded-lg hover:bg-card-hover disabled:opacity-50 transition-colors"
@@ -585,7 +403,11 @@ export function ReleaseClient() {
                       Release creado en el Watchdog.
                     </span>
                     <Link
-                      href="/releases/watchdog"
+                      href={
+                        watchdogReleaseId
+                          ? `/releases/watchdog?release=${encodeURIComponent(watchdogReleaseId)}`
+                          : '/releases/watchdog'
+                      }
                       className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
                     >
                       Ver checklist

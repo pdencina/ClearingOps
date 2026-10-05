@@ -22,7 +22,7 @@ export function useAuth() {
   return useContext(AuthContext)
 }
 
-// Credenciales válidas para la demo
+// Credenciales de acceso al sistema
 const VALID_USERS: Record<string, { password: string; user: User }> = {
   'pablo.encina@klap.cl': {
     password: 'klap2025',
@@ -31,10 +31,6 @@ const VALID_USERS: Record<string, { password: string; user: User }> = {
   'admin@klap.cl': {
     password: 'admin123',
     user: { email: 'admin@klap.cl', name: 'Admin KLAP', role: 'Super Admin', avatar: 'AK' },
-  },
-  'demo@klap.cl': {
-    password: 'demo',
-    user: { email: 'demo@klap.cl', name: 'Usuario Demo', role: 'Viewer', avatar: 'UD' },
   },
 }
 

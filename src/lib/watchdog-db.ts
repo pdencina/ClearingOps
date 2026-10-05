@@ -105,6 +105,45 @@ export async function listReleases(): Promise<DbRelease[]> {
   return serializeRows<DbRelease>(rows)
 }
 
+/**
+ * Devuelve TODOS los releases (sin filtrar por fase) junto a sus gates
+ * y alertas, agrupados por release. Usado por la vista Pipeline para
+ * mostrar el panorama completo en vez de solo el release más próximo
+ * al PaP (que es lo que devuelve getActiveRelease).
+ */
+export async function listReleasesWithGates(): Promise<
+  Array<{ release: DbRelease; gates: DbReleaseGate[]; alerts: DbReleaseAlert[] }>
+> {
+  const sql = getNeonSql()
+  const releases = await sql`SELECT * FROM releases ORDER BY pap_date ASC`
+  if (releases.length === 0) return []
+
+  const [allGates, allAlerts] = await Promise.all([
+    sql`SELECT * FROM release_gates ORDER BY release_id ASC, id ASC`,
+    sql`SELECT * FROM release_alerts ORDER BY release_id ASC, created_at DESC`,
+  ])
+
+  const gatesByRelease = new Map<string, DbReleaseGate[]>()
+  for (const row of serializeRows<DbReleaseGate>(allGates)) {
+    const list = gatesByRelease.get(row.release_id)
+    if (list) list.push(row)
+    else gatesByRelease.set(row.release_id, [row])
+  }
+
+  const alertsByRelease = new Map<string, DbReleaseAlert[]>()
+  for (const row of serializeRows<DbReleaseAlert>(allAlerts)) {
+    const list = alertsByRelease.get(row.release_id)
+    if (list) list.push(row)
+    else alertsByRelease.set(row.release_id, [row])
+  }
+
+  return serializeRows<DbRelease>(releases).map(release => ({
+    release,
+    gates: gatesByRelease.get(release.id) ?? [],
+    alerts: alertsByRelease.get(release.id) ?? [],
+  }))
+}
+
 export async function createReleaseRecord(params: {
   name: string
   bpc_version: string
@@ -197,6 +236,38 @@ export async function updateReleaseGate(
       )
     `
   }
+}
+
+/**
+ * Alerta levantada manualmente por el release manager (no automática).
+ * Es el canal para marcar un riesgo que el proceso no detecta solo —
+ * ej. "BPC confirmó el PaP pero no mandó el acta de la reunión técnica".
+ * Se registra también en el historial para trazabilidad.
+ */
+export async function createManualReleaseAlert(params: {
+  release_id: string
+  gate_id?: string | null
+  severity: 'info' | 'warning' | 'critical'
+  title: string
+  detail: string
+  created_by: string
+}): Promise<DbReleaseAlert> {
+  const sql = getNeonSql()
+  const rows = await sql`
+    INSERT INTO release_alerts (release_id, gate_id, severity, title, detail, is_acknowledged)
+    VALUES (${params.release_id}, ${params.gate_id ?? null}, ${params.severity}, ${params.title}, ${params.detail}, FALSE)
+    RETURNING *
+  `
+  // El historial es por-gate (gate_id es NOT NULL en release_gate_history),
+  // así que solo registramos ahí las alertas que apuntan a un gate concreto.
+  // Las alertas generales del release quedan trazadas en release_alerts.
+  if (params.gate_id) {
+    await sql`
+      INSERT INTO release_gate_history (release_id, gate_id, previous_status, new_status, changed_by, notes)
+      VALUES (${params.release_id}, ${params.gate_id}, NULL, ${'alert_raised'}, ${params.created_by}, ${`[${params.severity}] ${params.title}`})
+    `
+  }
+  return serializeDates(rows[0] as DbReleaseAlert)
 }
 
 export async function acknowledgeReleaseAlert(alertId: string, acknowledgedBy: string) {

@@ -1,38 +1,56 @@
 import { NextResponse } from 'next/server'
 import {
-  createRelease,
-  updateGate,
   getWatchdogSummary,
   generateGateRows,
   mapDbToRelease,
-  type WatchdogRelease,
   type GateStatus,
 } from '@/lib/engines/release-watchdog'
 import {
-  getActiveRelease,
+  getReleaseById,
   createReleaseRecord,
   insertReleaseGates,
   insertReleaseAlerts,
   updateReleaseGate,
+  createManualReleaseAlert,
+  acknowledgeReleaseAlert,
 } from '@/lib/watchdog-db'
 import { getWatchdogSnapshot } from '@/lib/watchdog-snapshot'
 
 export const dynamic = 'force-dynamic'
 
-// GET /api/release/watchdog
-// Devuelve el release activo (real, desde Supabase) con su resumen.
-// Se usa para el botón "Actualizar" del cliente; la carga inicial de
-// la página viene server-side (ver src/app/releases/watchdog/page.tsx).
-export async function GET() {
-  const snapshot = await getWatchdogSnapshot()
+type AlertSeverity = 'info' | 'warning' | 'critical'
+
+// Relee un release puntual desde Neon y devuelve su resumen como JSON.
+// Se usa tras cada mutación (gate, alerta) para responder con el estado
+// fresco del release correcto — no "el activo", que puede ser otro.
+async function summaryResponseFor(releaseId: string) {
+  const { release: dbRelease, gates, alerts } = await getReleaseById(releaseId)
+  if (!dbRelease) {
+    return NextResponse.json({ error: 'No se encontró el release en Neon.' }, { status: 404 })
+  }
+  const release = mapDbToRelease(dbRelease, gates, alerts)
+  return NextResponse.json({ ...getWatchdogSummary(release), data_source: 'neon' })
+}
+
+// GET /api/release/watchdog?release_id=...
+// Devuelve el resumen de un release. Sin release_id, el más próximo a
+// su PaP (comportamiento histórico). Con release_id, ese release puntual
+// (usado al abrir una tarjeta específica desde el Pipeline). Se usa para
+// el botón "Actualizar" del cliente; la carga inicial de la página viene
+// server-side (ver src/app/releases/watchdog/page.tsx).
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url)
+  const releaseId = searchParams.get('release_id') ?? undefined
+  const snapshot = await getWatchdogSnapshot(releaseId)
   return NextResponse.json(snapshot)
 }
 
 // POST /api/release/watchdog
 // Acciones sobre el proceso:
-//   { action: 'create', params: {...} }        → crea un release nuevo
-//   { action: 'update_gate', release, gate_id, update } → actualiza un gate
-//   { action: 'summary', release }             → recalcula el resumen
+//   { action: 'create', params: {...} }                      → crea un release nuevo
+//   { action: 'update_gate', release_id, gate_id, update }   → actualiza un gate
+//   { action: 'add_alert', release_id, severity, title, ... } → levanta una alerta manual
+//   { action: 'acknowledge_alert', release_id, alert_id }    → marca una alerta como revisada
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}))
@@ -76,15 +94,13 @@ export async function POST(req: Request) {
           }])
         }
 
-        const { release: freshDb, gates, alerts } = await getActiveRelease()
-        const release = freshDb ? mapDbToRelease(freshDb, gates, alerts) : createRelease(p)
-        return NextResponse.json({ ...getWatchdogSummary(release), data_source: 'neon' })
+        return await summaryResponseFor(dbRelease.id)
       }
 
-      // Actualiza un gate PERSISTIENDO en Neon (historial + alertas automáticas).
-      // Si no hay conexión a Neon, opera en memoria sobre el `release` recibido
-      // (fallback para seguir usando la demo sin base de datos).
+      // Actualiza un gate del release activo, persistiendo en Neon
+      // (historial + alertas automáticas si falla un gate bloqueante).
       case 'update_gate': {
+        const releaseId = body.release_id as string | undefined
         const gateId = body.gate_id as string
         const update = body.update as {
           status: GateStatus
@@ -92,47 +108,70 @@ export async function POST(req: Request) {
           evidence?: string
           notes?: string
         }
-        if (!gateId || !update?.status) {
+        if (!releaseId || !gateId || !update?.status) {
           return NextResponse.json(
-            { error: 'Faltan campos: gate_id, update.status.' },
+            { error: 'Faltan campos: release_id, gate_id, update.status.' },
             { status: 400 }
           )
         }
 
-        const releaseId = body.release_id as string | undefined
-
-        if (releaseId) {
-          await updateReleaseGate(releaseId, gateId, update)
-          const { release: dbRelease, gates, alerts } = await getActiveRelease()
-          if (dbRelease) {
-            const release = mapDbToRelease(dbRelease, gates, alerts)
-            return NextResponse.json({ ...getWatchdogSummary(release), data_source: 'neon' })
-          }
-        }
-
-        // Fallback en memoria (demo sin Neon configurado)
-        const release = body.release as WatchdogRelease
-        if (!release) {
-          return NextResponse.json(
-            { error: 'Falta release_id (modo real) o release (modo demo).' },
-            { status: 400 }
-          )
-        }
-        const updated = updateGate(release, gateId, update)
-        return NextResponse.json({ ...getWatchdogSummary(updated), data_source: 'demo_no_active_release' })
+        await updateReleaseGate(releaseId, gateId, update)
+        return await summaryResponseFor(releaseId)
       }
 
-      case 'summary': {
-        const release = body.release as WatchdogRelease
-        if (!release) {
-          return NextResponse.json({ error: 'Falta el campo release.' }, { status: 400 })
+      // Levanta una alerta manual sobre el release (el release manager
+      // marca un riesgo que el proceso automático no detecta).
+      case 'add_alert': {
+        const releaseId = body.release_id as string | undefined
+        const title = typeof body.title === 'string' ? body.title.trim() : ''
+        const detail = typeof body.detail === 'string' ? body.detail.trim() : ''
+        const severity = body.severity as AlertSeverity
+        const gateId = typeof body.gate_id === 'string' && body.gate_id ? body.gate_id : null
+
+        if (!releaseId || !title) {
+          return NextResponse.json(
+            { error: 'Faltan campos: release_id, title.' },
+            { status: 400 }
+          )
         }
-        return NextResponse.json(getWatchdogSummary(release))
+        if (!['info', 'warning', 'critical'].includes(severity)) {
+          return NextResponse.json(
+            { error: "severity debe ser 'info', 'warning' o 'critical'." },
+            { status: 400 }
+          )
+        }
+
+        await createManualReleaseAlert({
+          release_id: releaseId,
+          gate_id: gateId,
+          severity,
+          title,
+          detail,
+          created_by: typeof body.created_by === 'string' && body.created_by ? body.created_by : 'Release Manager',
+        })
+        return await summaryResponseFor(releaseId)
+      }
+
+      // Marca una alerta como revisada (sale del listado de alertas activas).
+      case 'acknowledge_alert': {
+        const releaseId = body.release_id as string | undefined
+        const alertId = body.alert_id as string | undefined
+        if (!releaseId || !alertId) {
+          return NextResponse.json(
+            { error: 'Faltan campos: release_id, alert_id.' },
+            { status: 400 }
+          )
+        }
+        await acknowledgeReleaseAlert(
+          alertId,
+          typeof body.acknowledged_by === 'string' && body.acknowledged_by ? body.acknowledged_by : 'Release Manager'
+        )
+        return await summaryResponseFor(releaseId)
       }
 
       default:
         return NextResponse.json(
-          { error: `Acción no reconocida: ${action}. Use create | update_gate | summary.` },
+          { error: `Acción no reconocida: ${action}. Use create | update_gate | add_alert | acknowledge_alert.` },
           { status: 400 }
         )
     }

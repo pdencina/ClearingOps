@@ -5,6 +5,8 @@ import { PageHeader } from '@/components/ui/page-header'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
+import { useAuth } from '@/components/auth-provider'
+import Link from 'next/link'
 import {
   ShieldCheck,
   ShieldAlert,
@@ -17,10 +19,21 @@ import {
   Lock,
   Unlock,
   Bell,
-  Database,
-  FlaskConical,
+  BellPlus,
   RefreshCw,
+  ArrowRight,
+  ArrowLeft,
+  X,
+  Check,
 } from 'lucide-react'
+
+type AlertSeverity = 'info' | 'warning' | 'critical'
+
+const SEVERITY_OPTIONS: { value: AlertSeverity; label: string }[] = [
+  { value: 'critical', label: 'Crítica' },
+  { value: 'warning', label: 'Advertencia' },
+  { value: 'info', label: 'Informativa' },
+]
 import {
   PHASE_LABELS,
   GATE_STATUS_LABELS,
@@ -47,26 +60,47 @@ const STATUS_STYLES: Record<GateStatus, { badge: string; icon: typeof CheckCircl
   waived: { badge: 'bg-purple-500/10 text-purple-400 border-purple-500/20', icon: CheckCircle2 },
 }
 
-type ApiSummary = WatchdogSummary & {
-  data_source?: 'neon' | 'demo_no_active_release' | 'demo_neon_unavailable'
-  data_source_error?: string
-}
+type ApiSummary =
+  | (WatchdogSummary & { data_source: 'neon' })
+  | { data_source: 'no_active_release' }
+  | { data_source: 'unavailable'; data_source_error: string }
 
 interface Props {
   initialSummary: ApiSummary
 }
 
 export function ReleaseWatchdogClient({ initialSummary }: Props) {
-  const [summary, setSummary] = useState<ApiSummary | null>(initialSummary)
+  const { user } = useAuth()
+  const [summary, setSummary] = useState<ApiSummary>(initialSummary)
   const [loading, setLoading] = useState(false)
   const [updatingGate, setUpdatingGate] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // Alertas manuales que levanta el release manager
+  const [showAlertForm, setShowAlertForm] = useState(false)
+  const [alertSeverity, setAlertSeverity] = useState<AlertSeverity>('warning')
+  const [alertTitle, setAlertTitle] = useState('')
+  const [alertDetail, setAlertDetail] = useState('')
+  const [alertGateId, setAlertGateId] = useState('')
+  const [savingAlert, setSavingAlert] = useState(false)
+  const [ackingAlert, setAckingAlert] = useState<string | null>(null)
+
+  // Release que esta pantalla muestra. Se fija al cargar (puede venir
+  // de "el más próximo al PaP" o de una tarjeta puntual del Pipeline
+  // vía ?release=) y se mantiene igual al refrescar con "Actualizar",
+  // para no saltar a otro release en medio de una revisión.
+  const [selectedReleaseId] = useState<string | undefined>(
+    initialSummary.data_source === 'neon' ? initialSummary.release.id : undefined
+  )
 
   const fetchSummary = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch('/api/release/watchdog', { cache: 'no-store' })
+      const url = selectedReleaseId
+        ? `/api/release/watchdog?release_id=${encodeURIComponent(selectedReleaseId)}`
+        : '/api/release/watchdog'
+      const res = await fetch(url, { cache: 'no-store' })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Error obteniendo el watchdog')
       setSummary(data)
@@ -75,25 +109,23 @@ export function ReleaseWatchdogClient({ initialSummary }: Props) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [selectedReleaseId])
 
   const setGate = useCallback(
     async (gateId: string, status: GateStatus) => {
-      if (!summary) return
+      if (summary.data_source !== 'neon') return
       setUpdatingGate(gateId)
       try {
-        const isReal = summary.data_source === 'neon'
         const res = await fetch('/api/release/watchdog', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             action: 'update_gate',
-            release_id: isReal ? summary.release.id : undefined,
-            release: isReal ? undefined : summary.release,
+            release_id: summary.release.id,
             gate_id: gateId,
             update: {
               status,
-              completed_by: 'Pablo Encina',
+              completed_by: user?.name ?? 'Usuario',
               evidence: status === 'passed' ? 'Validado vía ClearingOps Watchdog' : undefined,
             },
           }),
@@ -107,36 +139,122 @@ export function ReleaseWatchdogClient({ initialSummary }: Props) {
         setUpdatingGate(null)
       }
     },
-    [summary]
+    [summary, user]
   )
 
-  if (loading && !summary) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <Loader2 className="w-6 h-6 text-accent animate-spin" />
-      </div>
-    )
-  }
+  const raiseAlert = useCallback(async () => {
+    if (summary.data_source !== 'neon') return
+    if (!alertTitle.trim()) {
+      setError('La alerta necesita un título.')
+      return
+    }
+    setSavingAlert(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/release/watchdog', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'add_alert',
+          release_id: summary.release.id,
+          severity: alertSeverity,
+          title: alertTitle.trim(),
+          detail: alertDetail.trim(),
+          gate_id: alertGateId || undefined,
+          created_by: user?.name ?? 'Release Manager',
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Error levantando la alerta')
+      setSummary(data)
+      // Limpiar y cerrar el formulario
+      setAlertTitle('')
+      setAlertDetail('')
+      setAlertGateId('')
+      setAlertSeverity('warning')
+      setShowAlertForm(false)
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setSavingAlert(false)
+    }
+  }, [summary, alertSeverity, alertTitle, alertDetail, alertGateId, user])
 
-  if (error && !summary) {
+  const acknowledgeAlert = useCallback(
+    async (alertId: string) => {
+      if (summary.data_source !== 'neon') return
+      setAckingAlert(alertId)
+      setError(null)
+      try {
+        const res = await fetch('/api/release/watchdog', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'acknowledge_alert',
+            release_id: summary.release.id,
+            alert_id: alertId,
+            acknowledged_by: user?.name ?? 'Release Manager',
+          }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || 'Error marcando la alerta')
+        setSummary(data)
+      } catch (e) {
+        setError((e as Error).message)
+      } finally {
+        setAckingAlert(null)
+      }
+    },
+    [summary, user]
+  )
+
+  // Sin releases en Neon todavía: nada que vigilar.
+  if (summary.data_source === 'no_active_release') {
     return (
       <div className="space-y-6 animate-fade-in">
         <PageHeader title="Release Watchdog" description="Proceso de control de releases de BPC." />
-        <Card className="border-red-500/30">
-          <p className="text-sm text-red-400">{error}</p>
+        <Card className="text-center py-12">
+          <ShieldCheck className="w-10 h-10 text-muted mx-auto mb-3" />
+          <h3 className="text-sm font-medium text-foreground mb-1">No hay ningún release en control todavía</h3>
+          <p className="text-sm text-muted max-w-md mx-auto mb-4">
+            Cuando llegue un Release Note nuevo, analízalo en Release Analyzer y crea el checklist de gates desde ahí.
+          </p>
+          <Link
+            href="/releases"
+            className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
+          >
+            Ir a Release Analyzer
+            <ArrowRight className="w-3.5 h-3.5" />
+          </Link>
         </Card>
       </div>
     )
   }
 
-  if (!summary) return null
+  // La base de datos no está disponible: se informa, no se simula.
+  if (summary.data_source === 'unavailable') {
+    return (
+      <div className="space-y-6 animate-fade-in">
+        <PageHeader title="Release Watchdog" description="Proceso de control de releases de BPC." />
+        <Card className="border-red-500/30">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-400 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-foreground">No se pudo conectar a la base de datos</p>
+              <p className="text-xs text-muted mt-1">{summary.data_source_error}</p>
+              <p className="text-xs text-muted mt-2">Avisa a quien administra el sistema para revisar la conexión.</p>
+            </div>
+          </div>
+        </Card>
+      </div>
+    )
+  }
 
   const { release } = summary
   const risk = RISK_STYLES[summary.risk_level]
   const RiskIcon = risk.icon
   const activeAlerts = release.alerts.filter(a => !a.is_acknowledged)
   const progressPct = Math.round((summary.gates_passed / summary.gates_total) * 100)
-  const isRealData = summary.data_source === 'neon'
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -144,6 +262,25 @@ export function ReleaseWatchdogClient({ initialSummary }: Props) {
         title="Release Watchdog"
         description="Proceso de control de releases de BPC. Ningún cambio pasa a producción sin cumplir los gates obligatorios."
       >
+        <Link
+          href="/releases/pipeline"
+          className="inline-flex items-center gap-1.5 text-xs border border-border text-muted px-3 py-1.5 rounded-lg hover:bg-card-hover transition-colors"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          Pipeline
+        </Link>
+        <button
+          onClick={() => setShowAlertForm(v => !v)}
+          className={cn(
+            'inline-flex items-center gap-1.5 text-xs border px-3 py-1.5 rounded-lg transition-colors',
+            showAlertForm
+              ? 'border-accent/40 bg-accent/10 text-accent'
+              : 'border-border text-muted hover:bg-card-hover'
+          )}
+        >
+          <BellPlus className="w-3.5 h-3.5" />
+          Levantar alerta
+        </button>
         <button
           onClick={fetchSummary}
           disabled={loading}
@@ -154,27 +291,12 @@ export function ReleaseWatchdogClient({ initialSummary }: Props) {
         </button>
       </PageHeader>
 
-      {/* Fuente de datos */}
-      <div
-        className={cn(
-          'flex items-center gap-2 rounded-lg border px-3 py-2 text-xs',
-          isRealData
-            ? 'border-emerald-500/20 bg-emerald-500/5 text-emerald-400'
-            : 'border-yellow-500/20 bg-yellow-500/5 text-yellow-400'
-        )}
-      >
-        {isRealData ? <Database className="w-3.5 h-3.5" /> : <FlaskConical className="w-3.5 h-3.5" />}
-        {isRealData ? (
-          <span>Conectado a Neon — datos reales, cambios se guardan en la base.</span>
-        ) : summary.data_source === 'demo_neon_unavailable' ? (
-          <span>
-            Modo demo — Neon no está configurado (falta DATABASE_URL en .env.local). Los cambios de esta sesión no se guardan.
-          </span>
-        ) : (
-          <span>Modo demo — no hay releases activos en la base todavía. Crea uno para operar en real.</span>
-        )}
-        {error && <span className="text-red-400 ml-2">· {error}</span>}
-      </div>
+      {error && (
+        <div className="flex items-center gap-2 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-xs text-red-400">
+          <AlertTriangle className="w-3.5 h-3.5" />
+          {error}
+        </div>
+      )}
 
       {/* Panel de estado */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -234,6 +356,86 @@ export function ReleaseWatchdogClient({ initialSummary }: Props) {
         </Card>
       </div>
 
+      {/* Formulario para levantar una alerta manual */}
+      {showAlertForm && (
+        <Card className="border-accent/30">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-medium text-foreground">Levantar una alerta sobre {release.name}</h3>
+            <button
+              onClick={() => setShowAlertForm(false)}
+              className="p-1 rounded-md text-muted hover:text-foreground hover:bg-card-hover transition-colors"
+              title="Cerrar"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-3">
+              <div>
+                <label className="text-xs text-muted mb-1 block">Severidad</label>
+                <select
+                  value={alertSeverity}
+                  onChange={e => setAlertSeverity(e.target.value as AlertSeverity)}
+                  className="bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:border-accent outline-none"
+                >
+                  {SEVERITY_OPTIONS.map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex-1 min-w-[180px]">
+                <label className="text-xs text-muted mb-1 block">Gate relacionado (opcional)</label>
+                <select
+                  value={alertGateId}
+                  onChange={e => setAlertGateId(e.target.value)}
+                  className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:border-accent outline-none"
+                >
+                  <option value="">Ninguno — alerta general del release</option>
+                  {release.gates.map(g => (
+                    <option key={g.id} value={g.id}>{g.id} · {g.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-muted mb-1 block">Título</label>
+              <input
+                value={alertTitle}
+                onChange={e => setAlertTitle(e.target.value)}
+                placeholder="Ej: BPC confirmó el PaP pero no entregó el acta de la reunión técnica"
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:border-accent outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-muted mb-1 block">Detalle (opcional)</label>
+              <textarea
+                value={alertDetail}
+                onChange={e => setAlertDetail(e.target.value)}
+                rows={3}
+                placeholder="Contexto, impacto y qué se necesita para resolverlo."
+                className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm text-foreground focus:border-accent outline-none resize-y"
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={raiseAlert}
+                disabled={savingAlert || !alertTitle.trim()}
+                className="inline-flex items-center gap-2 bg-accent text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-accent/90 disabled:opacity-50 transition-colors"
+              >
+                {savingAlert ? <Loader2 className="w-4 h-4 animate-spin" /> : <BellPlus className="w-4 h-4" />}
+                {savingAlert ? 'Levantando…' : 'Levantar alerta'}
+              </button>
+              <button
+                onClick={() => setShowAlertForm(false)}
+                className="text-sm text-muted hover:text-foreground transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </Card>
+      )}
+
       {/* Alertas */}
       {activeAlerts.length > 0 && (
         <Card>
@@ -250,12 +452,24 @@ export function ReleaseWatchdogClient({ initialSummary }: Props) {
                   a.severity === 'critical' ? 'bg-red-500/5 border-red-500/20' : a.severity === 'warning' ? 'bg-yellow-500/5 border-yellow-500/20' : 'bg-blue-500/5 border-blue-500/20'
                 )}
               >
-                <div className="flex items-start gap-2">
-                  <AlertTriangle className={cn('w-4 h-4 mt-0.5 shrink-0', a.severity === 'critical' ? 'text-red-400' : a.severity === 'warning' ? 'text-yellow-400' : 'text-blue-400')} />
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{a.title}</p>
-                    <p className="text-xs text-muted mt-0.5">{a.detail}</p>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-2 min-w-0">
+                    <AlertTriangle className={cn('w-4 h-4 mt-0.5 shrink-0', a.severity === 'critical' ? 'text-red-400' : a.severity === 'warning' ? 'text-yellow-400' : 'text-blue-400')} />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-foreground">{a.title}</p>
+                      {a.detail && <p className="text-xs text-muted mt-0.5">{a.detail}</p>}
+                      {a.gate_id && <p className="text-[11px] text-muted mt-1 font-mono">Gate {a.gate_id}</p>}
+                    </div>
                   </div>
+                  <button
+                    onClick={() => acknowledgeAlert(a.id)}
+                    disabled={ackingAlert === a.id}
+                    title="Marcar como revisada"
+                    className="inline-flex items-center gap-1 text-xs text-muted hover:text-emerald-400 disabled:opacity-50 transition-colors shrink-0"
+                  >
+                    {ackingAlert === a.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                    Revisada
+                  </button>
                 </div>
               </div>
             ))}

@@ -3,13 +3,15 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { Zap, FileSearch, ShieldCheck, GitBranch } from 'lucide-react'
+import { Zap, FileSearch, ShieldCheck, GitBranch, Kanban } from 'lucide-react'
+import { useAuth } from '@/components/auth-provider'
 
 // Sistema focalizado en el control de releases de BPC.
 // El resto de módulos de KLAP CORE (Dashboard, Transacciones, Clearing, etc.)
 // siguen existiendo en el código pero se ocultan de la navegación para
-// mantener el foco en Release Analyzer + Release Watchdog.
+// mantener el foco en el proceso de releases.
 const navItems = [
+  { href: '/releases/pipeline', label: 'Pipeline', icon: Kanban },
   { href: '/releases', label: 'Release Analyzer', icon: FileSearch },
   { href: '/releases/watchdog', label: 'Release Watchdog', icon: ShieldCheck },
   { href: '/releases/bpc-tickets', label: 'Tickets BPC', icon: GitBranch },
@@ -17,6 +19,7 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname()
+  const { user, logout } = useAuth()
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-64 bg-sidebar border-r border-border flex flex-col z-50">
@@ -59,17 +62,14 @@ export function Sidebar() {
       <div className="p-4 border-t border-border">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-xs font-bold text-white">
-            PE
+            {user?.avatar ?? '—'}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-foreground truncate">Pablo Encina</p>
-            <p className="text-[10px] text-muted">Administrador</p>
+            <p className="text-xs font-medium text-foreground truncate">{user?.name ?? 'Usuario'}</p>
+            <p className="text-[10px] text-muted">{user?.role ?? ''}</p>
           </div>
           <button
-            onClick={() => {
-              localStorage.removeItem('klap_session')
-              window.location.reload()
-            }}
+            onClick={logout}
             className="p-1.5 rounded-lg hover:bg-card-hover text-muted hover:text-foreground transition-colors"
             title="Cerrar sesión"
           >

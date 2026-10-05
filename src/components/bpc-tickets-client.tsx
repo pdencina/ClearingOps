@@ -15,6 +15,7 @@ import {
   Database,
   FlaskConical,
   X,
+  Settings2,
 } from 'lucide-react'
 
 interface BpcTicket {
@@ -63,6 +64,7 @@ export function BpcTicketsClient({ initialTickets, initialDataSource }: Props) {
   const [syncResult, setSyncResult] = useState<string | null>(null)
   const [syncError, setSyncError] = useState<string | null>(null)
   const [customJql, setCustomJql] = useState('')
+  const [showAdvancedSync, setShowAdvancedSync] = useState(false)
 
   // Agregar manual
   const [showAddForm, setShowAddForm] = useState(false)
@@ -176,9 +178,9 @@ export function BpcTicketsClient({ initialTickets, initialDataSource }: Props) {
       >
         {isRealData ? <Database className="w-3.5 h-3.5" /> : <FlaskConical className="w-3.5 h-3.5" />}
         {isRealData ? (
-          <span>Conectado a Neon — datos reales.</span>
+          <span>Datos conectados — los cambios se guardan.</span>
         ) : (
-          <span>No se pudo conectar a la base ({dataSource}). Verifica DATABASE_URL.</span>
+          <span>No se pudo conectar a la base de datos. Avisa a quien administra el sistema.</span>
         )}
         {error && <span className="text-red-400 ml-2">· {error}</span>}
       </div>
@@ -189,24 +191,43 @@ export function BpcTicketsClient({ initialTickets, initialDataSource }: Props) {
           <div className="flex-1 min-w-[260px]">
             <h3 className="text-sm font-medium text-foreground mb-1">Sincronizar desde Jira</h3>
             <p className="text-xs text-muted mb-3">
-              Usa el JQL por defecto (JIRA_DERIVED_JQL en el servidor) o especifica uno puntual para esta sincronización.
+              Trae los tickets derivados a BPC según el criterio configurado en el servidor.
             </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => setShowAdvancedSync(v => !v)}
+              title="Opciones avanzadas"
+              className={cn(
+                'p-2 rounded-lg border border-border text-muted hover:text-foreground hover:bg-card-hover transition-colors',
+                showAdvancedSync && 'bg-card-hover text-foreground'
+              )}
+            >
+              <Settings2 className="w-4 h-4" />
+            </button>
+            <button
+              onClick={syncFromJira}
+              disabled={syncing}
+              className="inline-flex items-center gap-2 bg-accent text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-accent/90 disabled:opacity-50 transition-colors"
+            >
+              {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+              {syncing ? 'Sincronizando…' : 'Sincronizar con Jira'}
+            </button>
+          </div>
+        </div>
+        {showAdvancedSync && (
+          <div className="mt-3">
+            <label className="text-xs text-muted mb-1.5 block">
+              JQL puntual para esta sincronización (opcional — si se deja vacío usa el criterio por defecto del servidor)
+            </label>
             <input
               value={customJql}
               onChange={e => setCustomJql(e.target.value)}
-              placeholder='Opcional: project in (KLAP, ESV2) AND labels = derivado-bpc AND statusCategory != Done'
+              placeholder='project in (KLAP, ESV2) AND labels = derivado-bpc AND statusCategory != Done'
               className="w-full bg-background border border-border rounded-lg px-3 py-2 text-xs font-mono text-foreground focus:border-accent outline-none"
             />
           </div>
-          <button
-            onClick={syncFromJira}
-            disabled={syncing}
-            className="inline-flex items-center gap-2 bg-accent text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-accent/90 disabled:opacity-50 transition-colors shrink-0"
-          >
-            {syncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-            {syncing ? 'Sincronizando…' : 'Sincronizar con Jira'}
-          </button>
-        </div>
+        )}
         {syncResult && (
           <p className="text-xs text-emerald-400 mt-2 flex items-center gap-1.5">
             <CheckCircle2 className="w-3.5 h-3.5" />

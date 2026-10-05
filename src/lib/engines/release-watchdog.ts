@@ -509,65 +509,6 @@ export function getWatchdogSummary(release: WatchdogRelease): WatchdogSummary {
   }
 }
 
-// ─── Demo: release R26.60 pre-armado ────────────────────────
-
-export function createDemoRelease(): WatchdogRelease {
-  // PaP a 6 días de hoy: margen realista para mostrar el proceso en vivo.
-  const pap = addBusinessDays(new Date(), 6)
-  const received = addBusinessDays(new Date(), -4) // recibido hace 4 días (poco margen → alerta)
-  const base = createRelease({
-    name: 'R26.60',
-    bpc_version: 'SmartVista Radar Payments 26.60',
-    pap_date: pap.toISOString().split('T')[0],
-    release_note_received: received.toISOString().split('T')[0],
-    total_tickets: 20,
-    critical_tickets: 5,
-    klap_dependent_tickets: 7,
-    include_outgoing_validation: true, // demo: release toca clearing/SVXP
-  })
-
-  // Simular progreso parcial para la demo:
-  // Intake completado, validación en progreso, pre-PaP pendiente
-  const gates = base.gates.map(g => {
-    if (g.id === 'G01') return { ...g, status: 'passed' as GateStatus, completed_at: '2026-08-14T10:00:00Z', completed_by: 'Release Management', evidence: 'Release Note recibido vía email de BPC' }
-    if (g.id === 'G02') return { ...g, status: 'passed' as GateStatus, completed_at: '2026-08-14T11:30:00Z', completed_by: 'Pablo Encina', evidence: 'Verificado con Release Analyzer de ClearingOps' }
-    if (g.id === 'G03') return { ...g, status: 'passed' as GateStatus, completed_at: '2026-08-15T09:00:00Z', completed_by: 'Pablo Encina', evidence: '5 tickets sección Klap + 7 con dependencia KLAP identificados' }
-    if (g.id === 'G04') return { ...g, status: 'in_progress' as GateStatus, notes: 'QA ejecutando regresión en T6' }
-    if (g.id === 'G05') return { ...g, status: 'in_progress' as GateStatus, notes: 'PO revisando tickets de clearing' }
-    if (g.id === 'G07') return { ...g, status: 'failed' as GateStatus, notes: '⚠️ KLAP-2024: cambio requerido por CLAP no confirmado. Ticket atrasado 4 días.' }
-    if (g.id === 'G14') return { ...g, status: 'pending' as GateStatus, notes: 'Agendar con Alejandro San Martín (BPC) y equipo técnico KLAP.' }
-    if (g.id === 'G15') return { ...g, status: 'pending' as GateStatus, notes: 'Certificación BPC pendiente de confirmación.' }
-    if (g.id === 'G16') return { ...g, status: 'pending' as GateStatus, notes: 'Release toca clearing/SVXP — outgoing con lote reducido post-PaP.' }
-    return g
-  })
-
-  const alerts: ReleaseAlert[] = [
-    ...base.alerts,
-    {
-      id: 'ALT-KLAP2024',
-      release_id: base.id,
-      severity: 'critical',
-      title: 'Dependencia KLAP-2024 no resuelta',
-      detail: 'El ticket KLAP-2024 requiere un cambio de CLAP que no ha sido confirmado. Atrasado 4 días. Si no se resuelve antes del PaP, la operación se rompe en producción — mismo tipo de incidente que ocurrió en el release anterior.',
-      created_at: new Date().toISOString(),
-      is_acknowledged: false,
-      gate_id: 'G07',
-    },
-    {
-      id: 'ALT-TRANSPARENCY',
-      release_id: base.id,
-      severity: 'warning',
-      title: 'Verificar transparency report post-migración',
-      detail: 'En el release anterior, BPC apagó el transparency report durante una migración sin avisarnos. Asegurar que el gate G13 se valide inmediatamente después del PaP.',
-      created_at: new Date().toISOString(),
-      is_acknowledged: false,
-      gate_id: 'G13',
-    },
-  ]
-
-  return { ...base, gates, alerts, updated_at: new Date().toISOString() }
-}
-
 // ─── Helpers ────────────────────────────────────────────────
 
 function addBusinessDays(date: Date, days: number): Date {
