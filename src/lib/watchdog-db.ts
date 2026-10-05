@@ -224,17 +224,26 @@ export async function updateReleaseGate(
   `
 
   if (update.status === 'failed' && current?.is_blocking) {
-    await sql`
-      INSERT INTO release_alerts (release_id, gate_id, severity, title, detail, is_acknowledged)
-      VALUES (
-        ${releaseId},
-        ${gateId},
-        'critical',
-        ${`Gate bloqueante fallido: ${current.name}`},
-        ${update.notes || `El control "${current.name}" (${gateId}) falló. El PaP queda bloqueado hasta resolverlo.`},
-        FALSE
-      )
+    // Evita alertas duplicadas: si ya hay una alerta activa (sin revisar)
+    // para este gate, no creamos otra al re-marcarlo fallido.
+    const existing = await sql`
+      SELECT id FROM release_alerts
+      WHERE release_id = ${releaseId} AND gate_id = ${gateId} AND is_acknowledged = FALSE
+      LIMIT 1
     `
+    if (existing.length === 0) {
+      await sql`
+        INSERT INTO release_alerts (release_id, gate_id, severity, title, detail, is_acknowledged)
+        VALUES (
+          ${releaseId},
+          ${gateId},
+          'critical',
+          ${`Gate bloqueante fallido: ${current.name}`},
+          ${update.notes || `El control "${current.name}" (${gateId}) falló. El PaP queda bloqueado hasta resolverlo.`},
+          FALSE
+        )
+      `
+    }
   }
 }
 
