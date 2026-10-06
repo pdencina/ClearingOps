@@ -15,10 +15,19 @@ import {
   acknowledgeReleaseAlert,
 } from '@/lib/watchdog-db'
 import { getWatchdogSnapshot } from '@/lib/watchdog-snapshot'
+import {
+  notify,
+  buildCriticalAlertMessage,
+  buildBlockingGateFailedMessage,
+  buildPapAtRiskMessage,
+} from '@/lib/notifier'
 
 export const dynamic = 'force-dynamic'
 
 type AlertSeverity = 'info' | 'warning' | 'critical'
+
+// Umbral de días al PaP para avisar que un release sigue bloqueado.
+const PAP_AT_RISK_DAYS = 2
 
 // Relee un release puntual desde Neon y devuelve su resumen como JSON.
 // Se usa tras cada mutación (gate, alerta) para responder con el estado
@@ -116,6 +125,40 @@ export async function POST(req: Request) {
         }
 
         await updateReleaseGate(releaseId, gateId, update)
+
+        // Notificar si corresponde (best-effort, no bloquea la respuesta).
+        if (update.status === 'failed') {
+          const { release: dbRel, gates } = await getReleaseById(releaseId)
+          const gate = gates.find(g => g.id === gateId)
+          if (dbRel && gate && gate.is_blocking) {
+            const msg = buildBlockingGateFailedMessage(dbRel.name, gate.id, gate.name, update.notes)
+            await notify({
+              event_type: 'blocking_gate_failed',
+              release_id: dbRel.id,
+              release_name: dbRel.name,
+              subject: msg.subject,
+              body: msg.body,
+            })
+
+            // Si además el PaP está encima y quedan bloqueantes, avisar.
+            const summary = await getWatchdogSnapshot(releaseId)
+            if (
+              summary.data_source === 'neon' &&
+              summary.days_to_pap <= PAP_AT_RISK_DAYS &&
+              summary.gates_blocking_pending > 0
+            ) {
+              const papMsg = buildPapAtRiskMessage(dbRel.name, summary.days_to_pap, summary.gates_blocking_pending)
+              await notify({
+                event_type: 'pap_at_risk',
+                release_id: dbRel.id,
+                release_name: dbRel.name,
+                subject: papMsg.subject,
+                body: papMsg.body,
+              })
+            }
+          }
+        }
+
         return await summaryResponseFor(releaseId)
       }
 
@@ -149,6 +192,22 @@ export async function POST(req: Request) {
           detail,
           created_by: typeof body.created_by === 'string' && body.created_by ? body.created_by : 'Release Manager',
         })
+
+        // Solo las alertas críticas disparan correo.
+        if (severity === 'critical') {
+          const { release: dbRel } = await getReleaseById(releaseId)
+          if (dbRel) {
+            const msg = buildCriticalAlertMessage(dbRel.name, title, detail)
+            await notify({
+              event_type: 'critical_alert',
+              release_id: dbRel.id,
+              release_name: dbRel.name,
+              subject: msg.subject,
+              body: msg.body,
+            })
+          }
+        }
+
         return await summaryResponseFor(releaseId)
       }
 

@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
-import { Zap, FileSearch, ShieldCheck, GitBranch, Kanban, Gauge } from 'lucide-react'
+import { Zap, FileSearch, ShieldCheck, GitBranch, Kanban, Gauge, Bell } from 'lucide-react'
 import { useAuth } from '@/components/auth-provider'
 
 // Sistema focalizado en el control de releases de BPC.
@@ -16,6 +16,7 @@ const navItems = [
   { href: '/releases', label: 'Release Analyzer', icon: FileSearch },
   { href: '/releases/watchdog', label: 'Release Watchdog', icon: ShieldCheck },
   { href: '/releases/bpc-tickets', label: 'Tickets BPC', icon: GitBranch },
+  { href: '/releases/notificaciones', label: 'Notificaciones', icon: Bell },
 ]
 
 export function Sidebar() {
